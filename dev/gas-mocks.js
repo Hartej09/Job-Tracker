@@ -132,6 +132,7 @@
 
     const ss = new Spreadsheet();
     const store = {};
+    const mocksState = { slept: 0 };
     const lock = { held: 0, waitLock() { this.held += 1; }, releaseLock() { this.held -= 1; } };
     const docLock = {
       held: 0,
@@ -196,6 +197,11 @@
         newBlob(bytes) {
           return { getDataAsString: () => new TextDecoder().decode(Uint8Array.from(bytes, (b) => b & 255)) };
         },
+        // Doesn't really wait; records the total so tests can check pacing and back-off.
+        sleep(ms) {
+          mocksState.slept += ms;
+          if (ms >= 60000 && gmail && gmail.quotaLeft === 0) gmail.quotaLeft = null; // a minute passed
+        },
       },
       HtmlService: {
         createTemplateFromFile(name) {
@@ -206,7 +212,7 @@
       },
     };
     if (gmail) globals.Gmail = gmail;
-    return { globals, ss, store, lock, docLock, gmail, triggers };
+    return { globals, ss, store, lock, docLock, gmail, triggers, state: mocksState };
   }
 
   function toBase64Url(text) {
@@ -280,6 +286,14 @@
     }
 
     get(id) {
+      // quotaLeft: how many more fetches succeed before Gmail's per-minute limit (null = unlimited).
+      if (this.quotaLeft !== undefined && this.quotaLeft !== null) {
+        if (this.quotaLeft <= 0) {
+          throw new Error("API call to gmail.users.messages.get failed with error: Quota exceeded for quota metric " +
+            "'Total Query Cost' and limit 'Units per minute per user' of service 'gmail.googleapis.com'");
+        }
+        this.quotaLeft -= 1;
+      }
       this.calls.get += 1;
       const m = this.messages.find((x) => x.id === id);
       if (!m) throw new Error('API call to gmail.users.messages.get failed with error: Requested entity was not found.');

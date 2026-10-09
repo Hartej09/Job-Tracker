@@ -135,6 +135,8 @@ async function runSync(manual) {
     if (manual && result.error) toast('Sync failed: ' + result.error, true);
     else if (manual && result.skipped === 'already-running') toast('A sync is already running.');
     else if (result.newSuggestions) toast(result.newSuggestions + ' new suggestion(s) to review');
+    else if (manual && result.rateLimited) toast('Gmail asked to slow down — the rest is checked on the next sync.');
+    else if (manual && result.more) toast('Checked some emails — the rest continues on the next sync.');
     else if (manual) toast('Up to date');
   } catch (e) {
     if (manual) handleError(e);

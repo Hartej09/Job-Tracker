@@ -30,6 +30,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const SYNC_DUE_MS = 15 * 60 * 1000; // opening the app syncs if the last sync is older than this
 const INTERACTIVE_BUDGET_MS = 25 * 1000;
 const SCHEDULED_BUDGET_MS = 4.5 * 60 * 1000;
+const FETCH_PAUSE_MS = 120;          // between email fetches, to stay under Gmail's per-minute limit
+const RATE_LIMIT_WAIT_MS = 60 * 1000; // Gmail's limit is per minute
 
 const DEFAULT_SETTINGS = [
   ['gmail_query', '-category:promotions -category:social -in:sent -in:drafts -in:chats',
@@ -341,30 +343,59 @@ function newSyncContext_(settings, rules) {
   const jobs = readJobs_();
   const known = {};
   readSuggestions_().forEach(function (s) { known[s.dedupe_key] = true; });
+  // Emails already checked in a batch that was interrupted (time or rate limit).
+  const seen = {};
+  JSON.parse(PropertiesService.getDocumentProperties().getProperty('gmailCheckedIds') || '[]')
+    .forEach(function (id) { seen[id] = true; });
   return {
     settings: settings, rules: rules, matcher: buildMatcher_(jobs, settings), known: known,
-    seen: {}, suggestions: [], lastEmail: {}, processed: 0,
+    seen: seen, suggestions: [], lastEmail: {}, processed: 0,
   };
 }
 
-/** Process message ids until the deadline. Returns false if it ran out of time. */
+function isRateLimited_(e) {
+  return /quota exceeded|rate ?limit|too many (requests|times)|\b429\b/i.test(String(e && e.message ? e.message : e));
+}
+
+/**
+ * Fetch and check message ids, pacing requests to stay under Gmail's per-minute
+ * limit. If Gmail still says "slow down", wait a minute and retry when the time
+ * budget allows, otherwise stop. Returns 'done', 'timeout' or 'rate-limited'.
+ */
 function processIds_(ids, ctx, deadline) {
   for (let i = 0; i < ids.length; i++) {
-    if (Date.now() > deadline) return false;
     const id = ids[i];
     if (ctx.seen[id] || ctx.known['gmail:' + id]) continue;
-    ctx.seen[id] = true;
-    let message;
-    try {
-      message = Gmail.Users.Messages.get('me', id, { format: 'full' });
-    } catch (e) {
-      if (isNotFound_(e)) continue; // deleted since it was listed
-      throw e;
+    if (Date.now() > deadline) return 'timeout';
+    let message = null;
+    for (let attempt = 0; !message; attempt++) {
+      try {
+        message = Gmail.Users.Messages.get('me', id, { format: 'full' });
+      } catch (e) {
+        if (isNotFound_(e)) break; // deleted since it was listed
+        if (!isRateLimited_(e)) throw e;
+        if (attempt >= 2 || deadline - Date.now() < RATE_LIMIT_WAIT_MS + 10000) return 'rate-limited';
+        Utilities.sleep(RATE_LIMIT_WAIT_MS);
+      }
     }
+    ctx.seen[id] = true; // only once actually checked
+    if (!message) continue;
     ctx.processed += 1;
     considerEmail_(readEmail_(message), ctx);
+    Utilities.sleep(FETCH_PAUSE_MS);
   }
-  return true;
+  return 'done';
+}
+
+/** Remember which ids of an unfinished batch were checked (or forget them when done). */
+function saveCheckpoint_(ids, ctx, finished) {
+  const props = PropertiesService.getDocumentProperties();
+  if (finished) {
+    props.deleteProperty('gmailCheckedIds');
+    return;
+  }
+  const checked = ids.filter(function (id) { return ctx.seen[id]; }).slice(-500); // property size limit
+  props.setProperty('gmailCheckedIds', JSON.stringify(checked));
 }
 
 /** Match, classify and queue a suggestion for one email. */
@@ -405,11 +436,17 @@ function flushSync_(ctx) {
   });
 }
 
+function pause_(result, outcome) {
+  result.more = true;
+  if (outcome === 'rate-limited') result.rateLimited = true;
+}
+
 /**
  * Sync Gmail. First run: backfill the last `initial_sync_days` days. Later runs:
  * new messages since the stored historyId; if that id has expired, search since
- * the last sync instead. Stops at `budgetMs` and resumes on the next run.
- * Returns {processed, newSuggestions, more, usedFallback, error, skipped}.
+ * the last sync instead. Stops at `budgetMs` (or when Gmail's rate limit is hit)
+ * and resumes on the next run without re-checking emails it already checked.
+ * Returns {processed, newSuggestions, more, rateLimited, usedFallback, error, skipped}.
  */
 function syncGmail_(options) {
   const result = { processed: 0, newSuggestions: 0, more: false, usedFallback: false };
@@ -465,10 +502,11 @@ function syncGmail_(options) {
         const since = lastSyncAt ? 'after:' + epochSeconds_(lastSyncAt) : 'newer_than:' + settings.initialDays + 'd';
         ids = listMessageIds_((since + ' ' + query).trim());
       }
-      const finished = processIds_(ids, ctx, deadline);
+      const outcome = processIds_(ids, ctx, deadline);
       result.newSuggestions += flushSync_(ctx);
-      if (finished) props.setProperty('gmailHistoryId', newHistoryId);
-      else result.more = true; // keep the old id; the rest is fetched next time
+      saveCheckpoint_(ids, ctx, outcome === 'done');
+      if (outcome === 'done') props.setProperty('gmailHistoryId', newHistoryId);
+      else pause_(result, outcome); // keep the old id; the rest is fetched next time
     }
 
     // Backfill (first sync), one page at a time so progress survives timeouts.
@@ -477,10 +515,11 @@ function syncGmail_(options) {
       const pageToken = props.getProperty('gmailBackfillPageToken') || undefined;
       const resp = Gmail.Users.Messages.list('me', { q: backfillQuery, maxResults: 100, pageToken: pageToken });
       const ids = (resp.messages || []).map(function (m) { return m.id; });
-      const finished = processIds_(ids, ctx, deadline);
+      const outcome = processIds_(ids, ctx, deadline);
       result.newSuggestions += flushSync_(ctx);
-      if (!finished) {
-        result.more = true;
+      saveCheckpoint_(ids, ctx, outcome === 'done');
+      if (outcome !== 'done') {
+        pause_(result, outcome);
       } else if (resp.nextPageToken) {
         props.setProperty('gmailBackfillPageToken', resp.nextPageToken);
       } else {
@@ -495,10 +534,15 @@ function syncGmail_(options) {
     if (rules.problems.length) props.setProperty('gmailLastSyncError', rules.problems.join('; '));
     else props.deleteProperty('gmailLastSyncError');
   } catch (e) {
-    // Error messages from Gmail/Sheets don't contain email content.
-    result.error = String(e && e.message ? e.message : e).replace(/^(Error|Exception):\s*/, '');
-    props.setProperty('gmailLastSyncError', result.error);
-    props.setProperty('gmailLastSyncErrorAt', nowIso_());
+    if (isRateLimited_(e)) {
+      // Not a failure: Gmail asked us to slow down. The next sync carries on.
+      pause_(result, 'rate-limited');
+    } else {
+      // Error messages from Gmail/Sheets don't contain email content.
+      result.error = String(e && e.message ? e.message : e).replace(/^(Error|Exception):\s*/, '');
+      props.setProperty('gmailLastSyncError', result.error);
+      props.setProperty('gmailLastSyncErrorAt', nowIso_());
+    }
   } finally {
     syncLock.releaseLock();
   }

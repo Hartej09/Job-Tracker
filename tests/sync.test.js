@@ -253,15 +253,68 @@ test('a sync that runs out of time resumes where it stopped', () => {
   assert.equal(env.store.gmailBackfillQuery, undefined);
 });
 
+test("hitting Gmail's rate limit pauses the sync (not an error) and resumes without re-fetching", () => {
+  const env = fresh();
+  add(env);
+  for (let i = 0; i < 5; i++) {
+    env.gmail.add({ from: 'jobs@acme.com', subject: 'R-10001 #' + i, body: 'Unfortunately no.', date: inDays(-i - 1) });
+  }
+  env.gmail.quotaLeft = 2;
+  const first = env.json(env.gas.syncGmail_({ budgetMs: 25000 })); // too little time to wait a minute
+  assert.equal(first.rateLimited, true);
+  assert.equal(first.more, true);
+  assert.equal(first.error, undefined);
+  assert.equal(review(env).lastSyncError, null);
+  assert.equal(allSuggestions(env).length, 2, 'what was found before the limit is saved');
+  assert.equal(review(env).backfillInProgress, true);
+
+  env.gmail.quotaLeft = null; // the minute has passed
+  const second = env.json(env.gas.syncGmail_({ budgetMs: 25000 }));
+  assert.equal(second.more, false);
+  assert.equal(allSuggestions(env).length, 5);
+  assert.equal(env.gmail.calls.get, 5, 'no email is fetched twice');
+  assert.equal(env.store.gmailCheckedIds, undefined);
+});
+
+test('with enough time left, the sync waits a minute at the rate limit and carries on', () => {
+  const env = fresh();
+  add(env);
+  for (let i = 0; i < 3; i++) {
+    env.gmail.add({ from: 'jobs@acme.com', subject: 'R-10001 #' + i, body: 'Unfortunately no.', date: inDays(-i - 1) });
+  }
+  env.gmail.quotaLeft = 1;
+  const result = env.json(env.gas.syncGmail_({ budgetMs: 5 * 60 * 1000 }));
+  assert.equal(result.more, false);
+  assert.equal(result.rateLimited, undefined);
+  assert.equal(allSuggestions(env).length, 3);
+  assert.ok(env.state.slept >= 60000, 'waited for the limit to reset');
+});
+
+test('fetches are paced, and a rate limit while listing is also just a pause', () => {
+  const env = synced();
+  add(env);
+  env.gmail.add({ from: 'jobs@acme.com', subject: 'R-10001', body: 'Unfortunately no.' });
+  const before = env.state.slept;
+  sync(env);
+  assert.ok(env.state.slept - before >= 100, 'pauses between fetches');
+
+  env.gmail.add({ from: 'jobs@acme.com', subject: 'R-10001 again', body: 'Unfortunately…' });
+  env.gmail.historyList = () => { throw new Error('User-rate limit exceeded. Retry after 2026-10-09T20:00:00Z'); };
+  const result = sync(env);
+  assert.equal(result.rateLimited, true);
+  assert.equal(result.error, undefined);
+  assert.equal(review(env).lastSyncError, null);
+});
+
 test('sync errors are shown in the app and cleared by the next good sync', () => {
   const env = synced();
   add(env);
   env.gmail.add({ from: 'jobs@acme.com', subject: 'R-10001', body: 'Unfortunately…' });
   const realGet = env.gmail.get.bind(env.gmail);
-  env.gmail.get = () => { throw new Error('Service invoked too many times'); };
+  env.gmail.get = () => { throw new Error('Internal error encountered.'); };
   const failed = sync(env);
-  assert.match(failed.error, /too many times/);
-  assert.match(review(env).lastSyncError, /too many times/);
+  assert.match(failed.error, /Internal error/);
+  assert.match(review(env).lastSyncError, /Internal error/);
   env.gmail.get = realGet;
   sync(env);
   assert.equal(review(env).lastSyncError, null);

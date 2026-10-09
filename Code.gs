@@ -80,8 +80,9 @@ function setup() {
   const result = syncGmail_({ budgetMs: 5 * 60 * 1000 });
   const ghosts = runGhostCheck_();
   console.log(result.error ? 'Sync failed: ' + result.error :
-    'Checked ' + result.processed + ' emails; ' + (result.newSuggestions + ghosts) + ' new suggestion(s)' +
-    (result.more ? '. More emails left — they will be checked on the next sync.' : '.'));
+    'Checked ' + result.processed + ' emails; ' + (result.newSuggestions + ghosts) + ' new suggestion(s).' +
+    (result.rateLimited ? ' Paused at Gmail\'s rate limit — the rest is checked automatically on the next syncs.'
+      : result.more ? ' More emails left — they are checked automatically on the next syncs.' : ' All caught up.'));
 }
 
 // ---------------------------------------------------------------------------
