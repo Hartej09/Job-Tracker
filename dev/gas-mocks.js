@@ -101,6 +101,11 @@
         this.maxRows -= 1;
         return this;
       }
+      insertColumnAfter(col) {
+        this.rows.forEach((r) => { if (r.length > col) r.splice(col, 0, ''); });
+        this.maxCols += 1;
+        return this;
+      }
       setFrozenRows() { return this; }
       /** Test helper: rows 2.. as arrays of strings, blank rows dropped. */
       dump() {
@@ -128,6 +133,33 @@
     const ss = new Spreadsheet();
     const store = {};
     const lock = { held: 0, waitLock() { this.held += 1; }, releaseLock() { this.held -= 1; } };
+    const docLock = {
+      held: 0,
+      tryLock() { if (this.held) return false; this.held += 1; return true; },
+      releaseLock() { this.held -= 1; },
+    };
+
+    const triggers = [];
+    const ScriptApp = {
+      triggers,
+      getProjectTriggers: () => triggers.slice(),
+      deleteTrigger(t) { triggers.splice(triggers.indexOf(t), 1); },
+      newTrigger(handler) {
+        const spec = { handler };
+        const b = {
+          timeBased() { return b; },
+          everyHours(h) { spec.hours = h; return b; },
+          create() {
+            const t = { spec, getHandlerFunction: () => handler };
+            triggers.push(t);
+            return t;
+          },
+        };
+        return b;
+      },
+    };
+
+    const gmail = options.gmail === false ? null : new FakeGmail();
 
     const globals = {
       SpreadsheetApp: {
@@ -142,17 +174,27 @@
           return b;
         },
       },
-      LockService: { getScriptLock: () => lock },
+      LockService: { getScriptLock: () => lock, getDocumentLock: () => docLock, getUserLock: () => docLock },
+      ScriptApp,
       PropertiesService: {
         getDocumentProperties: () => ({
           getProperty: (k) => (k in store ? store[k] : null),
           setProperty(k, v) { store[k] = String(v); return this; },
+          deleteProperty(k) { delete store[k]; return this; },
         }),
       },
       Utilities: {
         formatDate(date, tz, format) {
           if (format !== 'yyyy-MM-dd') throw new Error('mock formatDate only supports yyyy-MM-dd');
           return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+        },
+        // Like Apps Script: decoding gives signed bytes.
+        base64DecodeWebSafe(text) {
+          const bin = atob(text.replace(/-/g, '+').replace(/_/g, '/'));
+          return Array.from(bin, (c) => (c.charCodeAt(0) << 24) >> 24);
+        },
+        newBlob(bytes) {
+          return { getDataAsString: () => new TextDecoder().decode(Uint8Array.from(bytes, (b) => b & 255)) };
         },
       },
       HtmlService: {
@@ -163,7 +205,109 @@
         createHtmlOutputFromFile(name) { return { getContent: () => '<!-- ' + name + ' -->' }; },
       },
     };
-    return { globals, ss, store, lock };
+    if (gmail) globals.Gmail = gmail;
+    return { globals, ss, store, lock, docLock, gmail, triggers };
+  }
+
+  function toBase64Url(text) {
+    let bin = '';
+    new TextEncoder().encode(text).forEach((b) => { bin += String.fromCharCode(b); });
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  const LABEL_FILTERS = {
+    'category:promotions': 'CATEGORY_PROMOTIONS', 'category:social': 'CATEGORY_SOCIAL',
+    'in:sent': 'SENT', 'in:drafts': 'DRAFT', 'in:chats': 'CHAT',
+  };
+
+  /**
+   * Fake Gmail advanced service: a mailbox with history ids. Supports the search
+   * terms Sync.gs uses (newer_than:Nd, after:<seconds>, -category:/-in: filters).
+   */
+  class FakeGmail {
+    constructor() {
+      this.messages = [];
+      this.historyId = 1000;
+      this.history = [];
+      this.oldestHistoryId = 0; // history.list before this id -> "not found"
+      this.calls = { get: 0, list: 0, history: 0 };
+      const self = this;
+      this.Users = {
+        getProfile: () => ({ emailAddress: 'me@example.com', historyId: String(self.historyId) }),
+        Messages: {
+          list(user, opts) { return self.list(opts || {}); },
+          get(user, id) { return self.get(id); },
+        },
+        History: {
+          list(user, opts) { return self.historyList(opts || {}); },
+        },
+      };
+    }
+
+    /** Add a message. `date` is a Date or ISO string; labels e.g. ['CATEGORY_PROMOTIONS']. */
+    add(msg) {
+      const id = msg.id || 'm' + (this.messages.length + 1);
+      const date = msg.date ? new Date(msg.date) : new Date();
+      this.messages.push(Object.assign({ labels: ['INBOX'], body: '', html: null }, msg, { id, date }));
+      this.historyId += 1;
+      this.history.push({ id: this.historyId, messagesAdded: [{ message: { id } }] });
+      return id;
+    }
+
+    matches(m, q) {
+      return String(q || '').split(/\s+/).filter(Boolean).every((term) => {
+        const neg = term.startsWith('-');
+        const t = neg ? term.slice(1) : term;
+        let ok;
+        if (/^newer_than:(\d+)d$/.test(t)) ok = m.date.getTime() >= Date.now() - Number(RegExp.$1) * 86400000;
+        else if (/^after:(\d+)$/.test(t)) ok = m.date.getTime() > Number(RegExp.$1) * 1000;
+        else if (LABEL_FILTERS[t]) ok = m.labels.includes(LABEL_FILTERS[t]);
+        else ok = true;
+        return neg ? !ok : ok;
+      });
+    }
+
+    list(opts) {
+      this.calls.list += 1;
+      const all = this.messages.filter((m) => this.matches(m, opts.q)).sort((a, b) => b.date - a.date);
+      const start = Number(opts.pageToken || 0);
+      const size = opts.maxResults || 100;
+      const page = all.slice(start, start + size);
+      const out = { resultSizeEstimate: all.length };
+      if (page.length) out.messages = page.map((m) => ({ id: m.id, threadId: m.id }));
+      if (start + size < all.length) out.nextPageToken = String(start + size);
+      return out;
+    }
+
+    get(id) {
+      this.calls.get += 1;
+      const m = this.messages.find((x) => x.id === id);
+      if (!m) throw new Error('API call to gmail.users.messages.get failed with error: Requested entity was not found.');
+      const parts = [];
+      if (m.body) parts.push({ mimeType: 'text/plain', filename: '', body: { data: toBase64Url(m.body) } });
+      if (m.html) parts.push({ mimeType: 'text/html', filename: '', body: { data: toBase64Url(m.html) } });
+      return {
+        id: m.id, threadId: m.id, labelIds: m.labels, internalDate: String(m.date.getTime()),
+        snippet: m.snippet !== undefined ? m.snippet : (m.body || '').slice(0, 120),
+        payload: {
+          mimeType: 'multipart/alternative',
+          headers: [{ name: 'From', value: m.from || '' }, { name: 'Subject', value: m.subject || '' }],
+          parts,
+        },
+      };
+    }
+
+    historyList(opts) {
+      this.calls.history += 1;
+      const start = Number(opts.startHistoryId);
+      if (start < this.oldestHistoryId) {
+        throw new Error('API call to gmail.users.history.list failed with error: Requested entity was not found.');
+      }
+      const entries = this.history.filter((h) => h.id > start);
+      const out = { historyId: String(this.historyId) };
+      if (entries.length) out.history = entries;
+      return out;
+    }
   }
 
   if (typeof module !== 'undefined' && module.exports) module.exports = { createGasMocks };

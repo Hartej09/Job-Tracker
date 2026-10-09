@@ -24,9 +24,9 @@ const jobs = (env) => env.json(env.gas.getAppData().jobs);
 test('setup creates sheets with headers and records the schema version', () => {
   const env = setup();
   const jobsSheet = env.ss.getSheetByName('Jobs');
-  assert.deepEqual(env.json(jobsSheet.getRange(1, 1, 1, 15).getDisplayValues()[0]), env.json(env.gas.JOB_COLUMNS));
+  assert.deepEqual(env.json(jobsSheet.getRange(1, 1, 1, 16).getDisplayValues()[0]), env.json(env.gas.JOB_COLUMNS));
   assert.ok(env.ss.getSheetByName('StatusHistory'));
-  assert.equal(env.store.schemaVersion, '1');
+  assert.equal(env.store.schemaVersion, '2');
   assert.ok(jobsSheet.validations.length > 0, 'status dropdown validation applied');
 });
 

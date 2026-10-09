@@ -15,7 +15,7 @@ function buildPage() {
     if (name !== 'JavaScript') return content;
     return '<script src="/dev/gas-mocks.js"></script>' +
       '<script src="/dev/preview-shim.js"></script>' +
-      '<script src="/Code.gs"></script>' + content;
+      '<script src="/Code.gs"></script><script src="/Sync.gs"></script>' + content;
   });
   // doGet adds these in Apps Script.
   return html.replace('<head>', '<head><meta name="viewport" content="width=device-width, initial-scale=1">' +
@@ -24,6 +24,7 @@ function buildPage() {
 
 const FILES = {
   '/Code.gs': 'Code.gs',
+  '/Sync.gs': 'Sync.gs',
   '/dev/gas-mocks.js': 'dev/gas-mocks.js',
   '/dev/preview-shim.js': 'dev/preview-shim.js',
   '/dev/sample_jobs.csv': 'dev/sample_jobs.csv',

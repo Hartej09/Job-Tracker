@@ -17,6 +17,8 @@ const S = {
   pendingAdd: null, // form data waiting for "Add anyway"
   imp: null,        // CSV import in progress
   importReport: null,
+  syncing: false,
+  autoSynced: false, // the automatic sync on opening runs once per page load
 };
 
 function $(selector, root) { return (root || document).querySelector(selector); }
@@ -108,10 +110,37 @@ async function reload() {
   const link = $('#sheet-link');
   link.href = S.data.sheetUrl;
   link.hidden = false;
-  const badge = $('#followup-badge');
-  badge.textContent = S.data.followUpIds.length;
-  badge.hidden = !S.data.followUpIds.length;
+  setBadge('#followup-badge', S.data.followUpIds.length);
+  setBadge('#review-badge', S.data.review.suggestions.length);
   render(false);
+  if (!S.autoSynced && S.data.review.syncDue) {
+    S.autoSynced = true;
+    runSync(false);
+  }
+}
+
+function setBadge(selector, count) {
+  const badge = $(selector);
+  badge.textContent = count;
+  badge.hidden = !count;
+}
+
+/** Sync Gmail. `manual` = the Sync now button (shows errors); otherwise quiet. */
+async function runSync(manual) {
+  if (S.syncing) return;
+  S.syncing = true;
+  if (S.view === 'review') renderReview();
+  try {
+    const result = await call('syncNow');
+    if (manual && result.error) toast('Sync failed: ' + result.error, true);
+    else if (manual && result.skipped === 'already-running') toast('A sync is already running.');
+    else if (result.newSuggestions) toast(result.newSuggestions + ' new suggestion(s) to review');
+    else if (manual) toast('Up to date');
+  } catch (e) {
+    if (manual) handleError(e);
+  }
+  S.syncing = false;
+  await reload();
 }
 
 function go(view) {
@@ -129,6 +158,7 @@ function render(navigated) {
   if (!S.data) return;
   if (S.view === 'jobs') renderJobs();
   else if (S.view === 'followups') renderFollowUps();
+  else if (S.view === 'review') renderReview();
   else if (S.view === 'stats') renderStats();
   else if (navigated && S.view === 'add') renderAdd();
   else if (navigated && S.view === 'import') renderImport();
@@ -157,10 +187,13 @@ function card(job) {
   if (job.salary_range) bits.push(esc(job.salary_range));
   const url = /^https?:\/\//i.test(job.job_url || '') ? job.job_url : null;
   const mode = S.open[job.id];
-  return '<article class="card" data-id="' + job.id + '">' +
+  const pending = S.data.review.suggestions.filter(function (s) { return s.job.id === job.id; });
+  return '<article class="card' + (pending.length ? ' has-suggestion' : '') + '" data-id="' + job.id + '">' +
     '<div class="card-head"><div class="card-title">' + esc(job.company) +
     ' <span>— ' + esc(job.role) + '</span></div>' +
     '<span class="status ' + esc(job.status) + '">' + esc(job.status) + '</span></div>' +
+    (pending.length ? '<button type="button" class="suggest-pill" data-act="review">Suggested: ' +
+      esc(pending[0].suggested_status) + (pending.length > 1 ? ' +' + (pending.length - 1) : '') + ' — review ›</button>' : '') +
     '<div class="meta">' + bits.join(' · ') + '</div>' +
     (job.contact ? '<div class="meta">Contact: ' + esc(job.contact) + '</div>' : '') +
     (job.notes ? '<div class="notes">' + esc(job.notes) + '</div>' : '') +
@@ -251,6 +284,7 @@ async function onCardAction(button) {
   const id = Number(cardEl.dataset.id);
   const act = button.dataset.act;
   const mode = S.open[id];
+  if (act === 'review') return go('review');
   if (act === 'edit') {
     S.open[id] = mode === 'edit' || mode === 'confirm-delete' ? undefined : 'edit';
   } else if (act === 'history') {
@@ -310,11 +344,13 @@ function visibleJobs() {
 
 function renderJobs() {
   $('#view').innerHTML =
-    '<h2>Jobs</h2>' +
+    '<div class="page-head"><h2>Jobs</h2><div class="row">' +
+    '<button type="button" class="btn btn-ghost" id="import">Import</button>' +
+    '<button type="button" class="btn btn-ghost" id="export">Export</button></div></div>' +
     '<div class="filters"><div class="chips" id="chips"></div>' +
     '<div class="toolbar">' +
     '<input type="search" id="search" placeholder="Search company, role, req ID, notes" value="' + esc(S.search) + '">' +
-    '<button type="button" class="btn" id="export">Export</button></div></div>' +
+    '</div></div>' +
     '<p class="muted small" id="job-count"></p><div id="job-list"></div>';
   renderChips();
   renderJobList();
@@ -323,6 +359,7 @@ function renderJobs() {
     renderJobList();
   });
   $('#export').addEventListener('click', exportView);
+  $('#import').addEventListener('click', function () { go('import'); });
 }
 
 function renderChips() {
@@ -417,6 +454,97 @@ function renderStats() {
     (S.data.perWeek.length
       ? bars(S.data.perWeek.map(function (w) { return { label: 'Wk ' + usDate(w.week).slice(0, 5), value: w.count }; }))
       : '<div class="empty">No jobs have a date applied.</div>');
+}
+
+// ---------------------------------------------------------------------------
+// Review page (suggestions from Gmail and inactivity)
+// ---------------------------------------------------------------------------
+
+const MATCHED_BY = {
+  requisition_id: 'requisition ID',
+  email_domain: 'sender\'s email domain',
+  company: 'company name',
+};
+
+function timeAgo(iso) {
+  const minutes = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return minutes + ' min ago';
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return hours + ' h ago';
+  return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function syncPanel(r) {
+  if (!r.gmailAvailable) {
+    return '<div class="card sync-bar"><b>Gmail sync isn\'t set up.</b> ' +
+      '<span class="muted small">Jobs that go quiet still show up here. See the README to turn on Gmail.</span></div>';
+  }
+  const when = r.lastSyncAt ? 'Last synced ' + timeAgo(r.lastSyncAt) : 'Not synced yet';
+  const auto = r.autoSyncHours ? 'auto every ' + r.autoSyncHours + ' h' : 'automatic sync off';
+  return '<div class="card sync-bar"><div class="sync-row"><div><b>' + esc(when) + '</b>' +
+    '<div class="muted small">' + esc(auto) + '</div></div>' +
+    '<button type="button" class="btn" id="sync-now"' + (S.syncing ? ' disabled' : '') + '>' +
+    (S.syncing ? 'Syncing…' : 'Sync now') + '</button></div>' +
+    (r.backfillInProgress ? '<p class="muted small" style="margin:8px 0 0">Still checking older emails — continues on the next sync.</p>' : '') +
+    (r.lastSyncError ? '<div class="notice error" style="margin-bottom:0">Last sync had a problem: ' + esc(r.lastSyncError) + '</div>' : '') +
+    '</div>';
+}
+
+function suggestionCard(s) {
+  const job = s.job;
+  const detail = s.kind === 'email'
+    ? '<div class="email"><div class="email-subject">' + esc(s.subject || '(no subject)') + '</div>' +
+      '<div class="meta">' + esc(s.sender) + ' · ' +
+      esc(new Date(s.email_date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })) + '</div>' +
+      (s.snippet ? '<div class="notes">' + esc(s.snippet) + '</div>' : '') +
+      '<div class="meta">Matched by ' + esc(MATCHED_BY[s.matched_by] || s.matched_by) + '</div></div>'
+    : '<div class="email"><div class="email-subject">No activity for ' + s.inactive_days + ' days</div>' +
+      '<div class="meta">No status change or matching email since then.</div></div>';
+  return '<article class="card suggestion" data-sid="' + s.id + '">' +
+    '<div class="card-title">' + esc(job.company) + ' <span>— ' + esc(job.role) + '</span></div>' +
+    '<div class="change"><span class="muted small">#' + esc(job.requisition_id) + '</span>' +
+    '<span class="status ' + esc(job.status) + '">' + esc(job.status) + '</span><span class="arrow">→</span>' +
+    '<span class="status ' + esc(s.suggested_status) + '">' + esc(s.suggested_status) + '</span></div>' +
+    detail +
+    '<div class="actions"><button type="button" class="btn btn-primary" data-sact="accept">Accept</button>' +
+    '<button type="button" class="btn" data-sact="dismiss">Dismiss</button></div>' +
+    '<div class="accept-as"><select aria-label="Status to accept as">' + statusOptions(s.suggested_status) + '</select>' +
+    '<button type="button" class="btn" data-sact="accept-as">Accept as</button></div>' +
+    '</article>';
+}
+
+function renderReview() {
+  const r = S.data.review;
+  $('#view').innerHTML = '<h2>Review</h2>' + syncPanel(r) +
+    (r.suggestions.length
+      ? '<p class="muted small">Suggested status changes. Nothing changes until you accept.</p>' +
+        r.suggestions.map(suggestionCard).join('')
+      : '<div class="empty">Nothing to review. ✓</div>');
+  const button = $('#sync-now');
+  if (button) button.addEventListener('click', function () { runSync(true); });
+}
+
+async function onSuggestionAction(button) {
+  const cardEl = button.closest('.suggestion');
+  const id = Number(cardEl.dataset.sid);
+  const s = S.data.review.suggestions.filter(function (x) { return x.id === id; })[0];
+  const act = button.dataset.sact;
+  cardEl.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+  try {
+    if (act === 'dismiss') {
+      await call('dismissSuggestion', id);
+      toast('Dismissed');
+    } else {
+      const status = act === 'accept-as' ? cardEl.querySelector('select').value : s.suggested_status;
+      await call('acceptSuggestion', id, status);
+      toast(s.job.company + ' → ' + status);
+    }
+    await reload();
+  } catch (e) {
+    cardEl.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+    handleError(e);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -826,6 +954,8 @@ $('#refresh').addEventListener('click', function () { reload(); });
 $('#view').addEventListener('click', function (e) {
   const chip = e.target.closest('.chip');
   if (chip) return onChip(chip.dataset.status);
+  const suggestion = e.target.closest('.suggestion [data-sact]');
+  if (suggestion) return onSuggestionAction(suggestion);
   const action = e.target.closest('.card [data-act]');
   if (action) onCardAction(action);
 });

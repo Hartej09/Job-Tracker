@@ -168,6 +168,27 @@
   .status.Rejected { background: var(--s-rejected); }
   .status.Ghosted { background: var(--s-ghosted); }
   .status.Withdrawn { background: var(--s-withdrawn); }
+  .page-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .page-head h2 { margin-bottom: 4px; }
+  .card.has-suggestion { border-left: 4px solid var(--accent); }
+  .suggest-pill {
+    display: inline-block; margin-top: 6px; padding: 3px 10px; border-radius: 999px; border: 0;
+    background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent);
+    font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+
+  /* Review */
+  .sync-bar { padding: 12px 14px; }
+  .sync-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .suggestion .change { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .suggestion .arrow { color: var(--muted); }
+  .suggestion .email { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--bg); }
+  .suggestion .email-subject { font-weight: 600; overflow-wrap: anywhere; }
+  .suggestion .email .notes, .suggestion .email .meta { overflow-wrap: anywhere; }
+  .accept-as { display: flex; gap: 6px; margin-top: 8px; }
+  .accept-as select { flex: 1; min-height: 38px; }
+  .accept-as .btn { min-height: 38px; font-size: 14px; }
+
   .history { list-style: none; padding: 0; margin: 8px 0 0; font-size: 14px; }
   .history li { padding: 4px 0; border-bottom: 1px dashed var(--border); }
 

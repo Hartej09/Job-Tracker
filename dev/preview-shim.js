@@ -13,7 +13,7 @@
   function seedOnce() {
     if (seeded) return;
     seeded = true;
-    window.setup();
+    window.migrate_(); // sheets only; the app's automatic sync on opening reads the sample mailbox
     const today = new Date();
     const iso = (offsetDays) => {
       const d = new Date(today.getTime() + offsetDays * 86400000);
@@ -27,6 +27,24 @@
       { requisition_id: 'W-1009', company: 'Woodgrove Bank', role: 'Risk Analyst', date_applied: iso(-21), status: 'Interviewing', follow_up: iso(5), location: 'Charlotte NC' },
       { requisition_id: 'C-3300', company: 'Coho Winery', role: 'Data Engineer', date_applied: iso(-17), status: 'Offer', location: 'Napa CA', notes: 'Offer received!' },
     ].forEach((job) => window.addJob(job, true));
+
+    // Northwind went quiet 37 days ago -> a "Ghosted" suggestion.
+    const history = mocks.ss.getSheetByName('StatusHistory');
+    history.dump().forEach((row, i) => {
+      if (row[1] === '1') history.getRange(i + 2, 5).setValue(new Date(Date.now() - 37 * 86400000).toISOString());
+    });
+
+    // Sample mailbox for the first Gmail sync.
+    const daysAgo = (n) => new Date(Date.now() - n * 86400000);
+    const g = mocks.gmail;
+    g.add({ from: 'Contoso Talent <talent@contoso.com>', subject: 'Your application for Business Analyst (CON-BA-01)',
+      body: 'Thank you for your time. Unfortunately, we have decided to move forward with other candidates.', date: daysAgo(1) });
+    g.add({ from: 'Fabrikam Recruiting <recruiting@fabrikam.com>', subject: 'Interview invitation — Product Manager R-88812',
+      body: 'We would like to invite you to interview with the product team. Please book a time that works for you.', date: daysAgo(2) });
+    g.add({ from: 'Woodgrove Bank <careers@woodgrove.com>', subject: 'W-1009: moving your interview',
+      body: 'Unfortunately we need to reschedule your interview to Thursday.', date: daysAgo(3) });
+    g.add({ from: 'Coho Deals <deals@coho.com>', subject: 'Coho Winery wine club offer letter',
+      body: 'Your exclusive offer letter inside!', labels: ['CATEGORY_PROMOTIONS'], date: daysAgo(1) });
   }
 
   function makeRunner(onSuccess, onFailure) {

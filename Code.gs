@@ -6,8 +6,9 @@
  * Served as a web app: Deploy → New deployment → Web app,
  * Execute as: Me, Who has access: Only myself.
  *
- * All reading and writing of the sheets lives in this file. Values are stored as
- * plain text: dates as YYYY-MM-DD, timestamps as UTC ISO-8601.
+ * Jobs, status history and CSV import live here; Gmail sync and suggestions are
+ * in Sync.gs. Values are stored as plain text: dates as YYYY-MM-DD, timestamps
+ * as UTC ISO-8601. Permissions are fixed in appsscript.json.
  */
 
 // ---------------------------------------------------------------------------
@@ -24,7 +25,9 @@ const JOB_FIELDS = [
   'requisition_id', 'company', 'role', 'date_applied', 'status', 'location',
   'salary_range', 'job_url', 'contact', 'email_domain', 'follow_up', 'notes',
 ];
-const JOB_COLUMNS = ['id'].concat(JOB_FIELDS, ['created_at', 'updated_at']);
+// Schema v1 columns; v2 added last_email_at (latest matched email, for the ghost check).
+const JOB_COLUMNS_V1 = ['id'].concat(JOB_FIELDS, ['created_at', 'updated_at']);
+const JOB_COLUMNS = JOB_COLUMNS_V1.concat(['last_email_at']);
 const HISTORY_COLUMNS = ['id', 'job_id', 'old_status', 'new_status', 'changed_at', 'source'];
 
 const FIELD_LABELS = {
@@ -63,9 +66,22 @@ function include(name) {
   return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
 
-/** Run once from the editor to create the sheets and grant permissions. */
+/**
+ * Run from the editor: creates/updates the sheets, asks for permissions, turns
+ * on the background sync and runs the first Gmail sync (can take a few minutes).
+ */
 function setup() {
   migrate_();
+  if (!gmailAvailable_()) {
+    console.log('Sheets are ready. Gmail sync is off (Gmail service not enabled in appsscript.json).');
+    return;
+  }
+  ensureTrigger_(readSettings_().autoSyncHours);
+  const result = syncGmail_({ budgetMs: 5 * 60 * 1000 });
+  const ghosts = runGhostCheck_();
+  console.log(result.error ? 'Sync failed: ' + result.error :
+    'Checked ' + result.processed + ' emails; ' + (result.newSuggestions + ghosts) + ' new suggestion(s)' +
+    (result.more ? '. More emails left — they will be checked on the next sync.' : '.'));
 }
 
 // ---------------------------------------------------------------------------
@@ -74,13 +90,16 @@ function setup() {
 
 const MIGRATIONS = [
   function v1(ss) {
-    const jobs = createSheet_(ss, SHEET_JOBS, JOB_COLUMNS);
+    const jobs = createSheet_(ss, SHEET_JOBS, JOB_COLUMNS_V1);
     applyStatusValidation_(jobs, 2, jobs.getMaxRows() - 1);
     protectColumns_(jobs, ['id', 'created_at', 'updated_at'],
       'Managed by the Job Tracker app — editing these can break it.');
     const history = createSheet_(ss, SHEET_HISTORY, HISTORY_COLUMNS);
     history.getRange(1, 1, history.getMaxRows(), HISTORY_COLUMNS.length).protect()
       .setWarningOnly(true).setDescription('Status history is written by the Job Tracker app.');
+  },
+  function v2(ss) {
+    migrateV2_(ss); // Sync.gs: Suggestions, Settings and Rules tabs; Jobs.last_email_at
   },
 ];
 
@@ -468,9 +487,13 @@ function today_() {
 
 function getAppData() {
   migrate_();
+  runGhostCheck_(); // spec: the inactivity check runs on app start, Gmail or not
   const jobs = sortJobs_(readJobs_());
   const today = today_();
+  const review = reviewData_();
   return {
+    review: review,
+    pendingJobIds: review.suggestions.map(function (s) { return s.job.id; }),
     jobs: jobs.map(publicJob_),
     followUpIds: followUpsDue_(jobs, today).map(function (j) { return j.id; }),
     counts: countByStatus_(jobs),
@@ -489,6 +512,7 @@ function getAppData() {
  * is false, nothing is saved and {duplicates} is returned so the UI can warn.
  */
 function addJob(data, force) {
+  migrate_(); // in case an old page writes before the sheet was upgraded
   return withLock_(function () {
     const clean = prepareNewJob_(data);
     const key = dupKey_(clean.company, clean.requisition_id);
@@ -501,27 +525,37 @@ function addJob(data, force) {
 }
 
 function updateJob(id, changes, expectedUpdatedAt) {
+  migrate_(); // in case an old page writes before the sheet was upgraded
   return withLock_(function () {
     return updateJob_(id, changes, expectedUpdatedAt, 'manual');
   });
 }
 
 /** Delete a job and its status history. */
+/** Delete a job and its status history and suggestions. */
 function deleteJob(id) {
+  migrate_(); // in case an old page writes before the sheet was upgraded
   return withLock_(function () {
     const job = findJob_(readJobs_(), id);
     sheet_(SHEET_JOBS).deleteRow(job._row);
-    const history = readHistory_();
-    const keep = history.filter(function (h) { return h.job_id !== job.id; });
-    if (keep.length !== history.length) {
-      clearRows_(SHEET_HISTORY, 2, history.length, HISTORY_COLUMNS.length);
-      if (keep.length) {
-        sheet_(SHEET_HISTORY).getRange(2, 1, keep.length, HISTORY_COLUMNS.length)
-          .setValues(keep.map(function (h) { return toRow_(h, HISTORY_COLUMNS); }));
-      }
+    removeJobRows_(SHEET_HISTORY, HISTORY_COLUMNS, job.id);
+    if (SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SUGGESTIONS)) {
+      removeJobRows_(SHEET_SUGGESTIONS, SUGGESTION_COLUMNS, job.id);
     }
     return true;
   });
+}
+
+/** Rewrite a sheet without the rows whose job_id is `jobId`, keeping the order. */
+function removeJobRows_(name, columns, jobId) {
+  const rows = readTable_(name, columns);
+  const keep = rows.filter(function (r) { return Number(r.job_id) !== jobId; });
+  if (keep.length === rows.length) return;
+  clearRows_(name, 2, sheet_(name).getLastRow() - 1, columns.length);
+  if (keep.length) {
+    sheet_(name).getRange(2, 1, keep.length, columns.length)
+      .setValues(keep.map(function (r) { return toRow_(r, columns); }));
+  }
 }
 
 function getHistory(id) {
@@ -782,6 +816,7 @@ function checkImport(rawRecords) {
  * re-checked under the lock and skipped. All-or-nothing on validation errors.
  */
 function importJobs(records) {
+  migrate_(); // in case an old page writes before the sheet was upgraded
   return withLock_(function () {
     const plan = buildPlan_(records, existingKeys_());
     if (plan.invalid.length) {

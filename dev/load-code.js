@@ -1,16 +1,19 @@
-// Loads Code.gs into a fresh Node VM context backed by the in-memory mocks.
+// Loads the .gs files into a fresh Node VM context backed by the in-memory mocks.
+// Like Apps Script, all files share one global scope.
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { createGasMocks } = require('./gas-mocks.js');
 
-const CODE = fs.readFileSync(path.join(__dirname, '..', 'Code.gs'), 'utf8');
+const FILES = ['Code.gs', 'Sync.gs'];
+const SOURCES = FILES.map((f) => [f, fs.readFileSync(path.join(__dirname, '..', f), 'utf8')]);
 
+/** options.gmail === false loads without the Gmail service (as if it isn't enabled). */
 function loadCode(options) {
   const mocks = createGasMocks(options);
   const context = vm.createContext(Object.assign({ console }, mocks.globals));
-  vm.runInContext(CODE, context, { filename: 'Code.gs' });
+  for (const [filename, source] of SOURCES) vm.runInContext(source, context, { filename });
   // Top-level consts and functions live in the context's global scope.
   const gas = new Proxy({}, {
     get: (_, name) => vm.runInContext(String(name), context),
