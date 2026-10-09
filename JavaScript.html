@@ -193,6 +193,7 @@ async function runSync(manual) {
 }
 
 function go(view) {
+  if (view !== S.view) S.sel = null;
   S.view = view;
   render(true);
   window.scrollTo(0, 0);
@@ -504,13 +505,13 @@ function onChip(status) {
   renderJobList(true);
 }
 
-function jobsTable(jobs) {
+function jobsTable(jobs, followUps) {
   const pending = {};
   S.data.review.suggestions.forEach(function (s) { (pending[s.job.id] = pending[s.job.id] || []).push(s); });
   const none = '<span class="faint">—</span>';
   return '<div class="table-wrap"><table class="jobs"><thead><tr>' +
-    ['Company &amp; role', 'Req ID', 'Status', 'Applied', 'Follow up', 'Location'].map(function (h) {
-      return '<th scope="col">' + h + '</th>';
+    (followUps ? ['Company &amp; role', 'Req ID', 'Status', 'Follow up', 'Contact'] : ['Company &amp; role', 'Req ID', 'Status', 'Applied', 'Follow up', 'Location']).map(function (h, i, all) {
+      return '<th scope="col"' + (i === all.length - 1 ? ' class="col-opt"' : '') + '>' + h + '</th>';
     }).join('') + '</tr></thead><tbody>' + jobs.map(function (j) {
       const s = (pending[j.id] || [])[0];
       let followUp = none;
@@ -527,21 +528,25 @@ function jobsTable(jobs) {
         '<td><div class="co">' + esc(j.company) + '</div><div class="ro">' + esc(j.role) + '</div></td>' +
         '<td class="mono">' + esc(j.requisition_id) + '</td>' +
         '<td>' + statusPill(j.status) + hint + '</td>' +
-        '<td>' + (j.date_applied ? shortDate(j.date_applied) : none) + '</td>' +
-        '<td>' + followUp + '</td>' +
-        '<td>' + (j.location ? esc(j.location) : none) + '</td></tr>';
+        (followUps
+          ? '<td>' + followUp + '</td><td class="col-opt">' + (j.contact ? esc(j.contact) : none) + '</td></tr>'
+          : '<td>' + (j.date_applied ? shortDate(j.date_applied) : none) + '</td>' +
+            '<td>' + followUp + '</td>' +
+            '<td class="col-opt">' + (j.location ? esc(j.location) : none) + '</td></tr>');
     }).join('') + '</tbody></table></div>';
 }
 
 /** keepDetail: leave an open details panel alone (typing in search must not wipe unsaved edits). */
 function renderJobList(keepDetail) {
-  const jobs = visibleJobs();
+  const followUps = S.view === 'followups';
+  const jobs = followUps ? dueJobs() : visibleJobs();
   const wide = WIDE.matches;
-  $('#job-count').textContent = jobs.length + ' of ' + S.data.jobs.length + ' job(s)';
+  if (!followUps) $('#job-count').textContent = jobs.length + ' of ' + S.data.jobs.length + ' job(s)';
   $('#job-list').innerHTML = !jobs.length
     ? '<div class="empty">' + (S.data.jobs.length ? 'No jobs match.' : 'No jobs yet. Tap <b>Add</b> or <b>Import</b>.') + '</div>'
-    : wide ? jobsTable(jobs) : jobs.map(card).join('');
-  const selected = wide && S.sel ? jobById(S.sel) : null;
+    : wide ? jobsTable(jobs, followUps) : jobs.map(card).join('');
+  // On Follow-ups, a job drops out of the list (and its panel closes) once its date moves past today.
+  const selected = wide && S.sel && (!followUps || jobs.some(function (j) { return j.id === S.sel; })) ? jobById(S.sel) : null;
   if (S.sel && !selected && wide) S.sel = null;
   const shown = $('#job-detail .detail');
   if (!(keepDetail && selected && shown && shown.dataset.id === String(selected.id))) {
@@ -576,12 +581,27 @@ function downloadCsv(filename, csv) {
 // Follow-ups & stats
 // ---------------------------------------------------------------------------
 
+/** Jobs whose follow-up is due, oldest first. */
+function dueJobs() {
+  return S.data.followUpIds.map(jobById).filter(Boolean)
+    .sort(function (x, y) { return x.follow_up < y.follow_up ? -1 : x.follow_up > y.follow_up ? 1 : 0; });
+}
+
 function renderFollowUps() {
-  const due = S.data.followUpIds.map(jobById).filter(Boolean);
-  $('#view').innerHTML = '<h2>Follow-ups due</h2>' +
-    '<p class="muted small lede">Follow-up date is today or earlier, and the job isn\'t Rejected, Withdrawn or an Offer. ' +
-    'Update the follow-up date once you\'ve followed up.</p>' +
-    (due.length ? due.map(card).join('') : '<div class="empty">Nothing due. 🎉</div>');
+  const due = dueJobs();
+  const late = due.filter(function (j) { return j.follow_up < S.data.today; }).length;
+  const summary = !due.length ? 'You\'re all caught up' : [
+    plural(due.length, 'job') + ' to follow up',
+    late ? late + ' overdue' : '',
+    due.length - late ? (due.length - late) + ' due today' : '',
+  ].filter(Boolean).join(' · ');
+  $('#view').innerHTML = '<h2>Follow-ups</h2><p class="muted small lede">' + esc(summary) + ' · oldest first</p>' +
+    (due.length
+      ? '<p class="muted small lede">A follow-up is due when its date is today or earlier and the job isn\'t Rejected, Withdrawn or an Offer. ' +
+        'Pick a new date once you\'ve followed up.</p><div id="jobs-layout" class="jobs-layout"><div id="job-list"></div><div id="job-detail"></div></div>'
+      : '<div class="empty"><b>Nothing due.</b><br>Jobs with a follow-up date of today or earlier show up here.<br><br>' +
+        '<button type="button" class="btn" data-go="jobs">See all jobs</button></div>');
+  if (due.length) renderJobList();
 }
 
 function bars(rows) {
@@ -1207,7 +1227,7 @@ $('#view').addEventListener('submit', function (e) {
 });
 // Cards on phones, table on wide screens: redraw when the window crosses the breakpoint.
 if (WIDE.addEventListener) {
-  WIDE.addEventListener('change', function () { if (S.data && S.view === 'jobs') renderJobList(); });
+  WIDE.addEventListener('change', function () { if (S.data && (S.view === 'jobs' || S.view === 'followups') && $('#job-list')) renderJobList(); });
 }
 render(true);
 reload();
