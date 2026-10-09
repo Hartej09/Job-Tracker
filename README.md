@@ -25,36 +25,45 @@ It opens at http://localhost:8501 and only this PC can connect
 (see `.streamlit/config.toml`). The database (`jobs.db` by default) is created and
 migrated automatically on start. Close the window (or Ctrl+C) to stop.
 
-## Use it on your phone (same Wi-Fi)
+## Use it on your phone (same network)
 
-The app and data stay on your PC; the phone opens it in its browser over your Wi-Fi.
-The PC must be on, awake, and on the same Wi-Fi (or turn on Windows **Mobile hotspot**
-and connect the phone to it).
+The app and data stay on your PC; the phone opens it in its browser over whatever
+network both are connected to — home Wi-Fi, office or café Wi-Fi, or the PC's own
+Windows **Mobile hotspot** (Settings → Network & internet → Mobile hotspot). The PC
+must be on and awake.
 
 One-time setup:
 
-1. **Mark your home Wi-Fi as Private:** Settings → Network & internet → Wi-Fi →
-   your network → Network profile type → **Private**.
-2. **Allow the app through the firewall, home Wi-Fi only.** In PowerShell
-   *run as administrator*:
+1. **Allow the app through the firewall for devices on the same network.** In
+   PowerShell *run as administrator*:
 
    ```powershell
-   New-NetFirewallRule -DisplayName "Job Tracker (Wi-Fi)" -Direction Inbound -Protocol TCP -LocalPort 8501 -Profile Private -RemoteAddress LocalSubnet -Action Allow
+   New-NetFirewallRule -DisplayName "Job Tracker (same network)" -Direction Inbound -Protocol TCP -LocalPort 8501 -Profile Any -RemoteAddress LocalSubnet -Action Allow
    ```
 
-   This allows only port 8501, only on Private networks, only from devices on the
-   same local network.
-3. **Recommended: set a password.** Copy `.env.example` to `.env` and set
-   `JOBTRACKER_PASSWORD=...`. Without it, anyone on your Wi-Fi can open the app.
+   This allows only port 8501, and only from devices on the same local network as
+   the PC, on any network type (home, public or work).
+2. **Set a password (strongly recommended).** Copy `.env.example` to `.env` and set
+   `JOBTRACKER_PASSWORD=...`. "Same network" includes everyone else on that network —
+   on café or office Wi-Fi that means strangers.
 
 Each time: double-click **`run_phone.cmd`**, then open the **Network URL** it prints
 (e.g. `http://192.168.0.111:8501`) on your phone. Phones open the **Phone view** page
 automatically. To get an app icon: Safari → Share → *Add to Home Screen*, or
-Chrome → ⋮ → *Add to Home screen*. If your router gives the PC a new address later,
-use the new Network URL.
+Chrome → ⋮ → *Add to Home screen*. The address changes between networks (and
+sometimes on the same network), so use the Network URL printed that day.
+
+Good to know:
+
+- Many public and office Wi-Fi networks block devices from talking to each other
+  ("client isolation"). If the phone can't connect there, turn on the PC's Mobile
+  hotspot and connect the phone to that — it works anywhere.
+- The connection is plain HTTP, so on open public Wi-Fi others on the network could
+  in principle see the traffic (including the password). On untrusted Wi-Fi, prefer
+  the PC's hotspot.
 
 To turn phone access off, just use `run_desktop.cmd`. To remove the firewall rule:
-`Remove-NetFirewallRule -DisplayName "Job Tracker (Wi-Fi)"` (as administrator).
+`Remove-NetFirewallRule -DisplayName "Job Tracker (same network)"` (as administrator).
 
 ## Features (Phase 1)
 

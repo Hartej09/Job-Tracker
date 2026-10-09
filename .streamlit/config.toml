@@ -1,6 +1,6 @@
 [server]
 # Only this PC can open the app by default. run_phone.cmd overrides this so
-# devices on the same Wi-Fi can connect.
+# devices on the same network can connect.
 address = "localhost"
 port = 8501
 
