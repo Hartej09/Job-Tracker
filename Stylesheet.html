@@ -137,12 +137,13 @@
   }
   .tabbar button[aria-current="page"] { color: var(--text); }
   .tabbar button[data-view="add"] { color: #fff; }
+  .tabbar button[data-view="add"] { padding: 4px 2px; }
   .tabbar button[data-view="add"] svg {
-    width: 52px; height: 52px; padding: 13px; margin-top: -26px; border-radius: 18px;
+    width: 52px; height: 52px; padding: 13px; margin: -4px 0; transform: translateY(-20px); border-radius: 18px;
     background: var(--accent); stroke-width: 2.2;
     box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 30%, transparent);
   }
-  .tabbar button[data-view="add"][aria-current="page"] svg { box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--accent); }
+  .tabbar button[data-view="add"][aria-current="page"] svg { filter: brightness(.9); }
   .tabbar button[data-view="add"] span {
     position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
   }
@@ -183,10 +184,17 @@
     outline: 2px solid var(--accent); outline-offset: 2px;
   }
   input::placeholder, textarea::placeholder { color: var(--faint); }
+  input[type="date"] {
+    -webkit-appearance: none; appearance: none; display: block; min-width: 0; max-width: 100%;
+    text-align: left; line-height: normal;
+  }
+  input[type="date"]::-webkit-date-and-time-value { text-align: left; min-height: 1.5em; }
+  .grid > div, .grid.two > div { min-width: 0; }
   textarea { min-height: 80px; resize: vertical; }
   .grid { display: grid; grid-template-columns: 1fr; gap: 0 12px; }
-  .grid.two { grid-template-columns: 1fr 1fr; }
-  @media (min-width: 620px) { .grid { grid-template-columns: 1fr 1fr; } .grid .wide { grid-column: 1 / -1; } }
+  .grid, .grid.two { grid-template-columns: minmax(0, 1fr); }
+  .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (min-width: 620px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grid .wide { grid-column: 1 / -1; } }
 
   /* Status pills */
   .status {
@@ -275,6 +283,8 @@
   .searchbox { position: relative; flex: 1 1 100%; order: 3; margin-top: 10px; }
   .searchbox svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; color: var(--muted); pointer-events: none; }
   .searchbox input { padding-left: 42px; min-height: 46px; }
+  .searchbox input:focus, .searchbox input:focus-visible { outline: none; box-shadow: none; border-color: var(--muted); }
+  .searchbox input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
   .wide-only { display: none; }
   .jobs-main { min-width: 0; }
   .jobs-main .banner { margin: 0 0 12px; }
@@ -528,7 +538,8 @@
 
   @media (min-width: 900px) {
     body { padding-left: var(--sidebar); padding-bottom: 0; }
-    main { max-width: 1180px; padding: 12px 32px 48px; }
+    main { max-width: 1320px; margin: 0; padding: 12px 32px 48px; }
+    .empty { text-align: left; padding: 24px 0; }
     .filters { margin: 0; padding-left: 0; padding-right: 0; }
     .tabbar {
       top: 0; right: auto; bottom: 0; width: var(--sidebar); z-index: 12;

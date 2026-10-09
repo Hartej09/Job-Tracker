@@ -589,7 +589,7 @@ function renderJobList(keepDetail) {
   const wide = WIDE.matches;
   if (!followUps) $('#job-count').textContent = 'Showing ' + jobs.length + ' of ' + plural(S.data.jobs.length, 'job');
   $('#job-list').innerHTML = !jobs.length
-    ? '<div class="empty">' + (S.data.jobs.length ? 'No jobs match.' : 'No jobs yet. Tap <b>Add</b> or <b>Import</b>.') + '</div>'
+    ? '<div class="empty">' + (S.data.jobs.length ? 'No jobs match.' : 'No jobs yet. Use <b>Add job</b> or <b>Import</b> to get started.') + '</div>'
     : wide ? jobsTable(jobs, followUps) : jobs.map(card).join('');
   // On Follow-ups, a job drops out of the list (and its panel closes) once its date moves past today.
   if (wide && !S.sel && !S.selDismissed && jobs.length) S.sel = jobs[0].id;
