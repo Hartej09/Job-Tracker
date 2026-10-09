@@ -14,6 +14,7 @@ const S = {
   filter: null,     // Set of statuses shown on the Jobs page
   search: '',
   open: {},         // job id -> 'edit' | 'confirm-delete' | 'history'
+  sel: null,        // job id shown in the details panel (wide screens)
   pendingAdd: null, // form data waiting for "Add anyway"
   imp: null,        // CSV import in progress
   importReport: null,
@@ -33,6 +34,37 @@ function usDate(iso) {
   if (!iso) return '';
   const p = iso.split('-');
   return p[1] + '/' + p[2] + '/' + p[0];
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "Sep 8", or "Sep 8, 2025" when the year isn't the current one. */
+function shortDate(iso) {
+  if (!iso) return '';
+  const p = iso.split('-');
+  const text = MONTHS[Number(p[1]) - 1] + ' ' + Number(p[2]);
+  return S.data && p[0] !== S.data.today.slice(0, 4) ? text + ', ' + p[0] : text;
+}
+
+function addDays(iso, days) {
+  return new Date(Date.parse(iso + 'T00:00:00Z') + days * 86400000).toISOString().slice(0, 10);
+}
+
+const WIDE = window.matchMedia('(min-width: 900px)');
+
+const ICON = {
+  close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  mail: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v12H3zM3 7l9 6 9-6"/></svg>',
+  arrow: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  chev: '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
+  down: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>',
+  up: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>',
+};
+
+function statusPill(status, big) {
+  return '<span class="status ' + esc(status) + (big ? ' big' : '') + '">' + esc(status) + '</span>';
 }
 
 function daysBetween(fromIso, toIso) {
@@ -112,6 +144,7 @@ async function reload() {
   link.hidden = false;
   setBadge('#followup-badge', S.data.followUpIds.length);
   setBadge('#review-badge', S.data.review.suggestions.length);
+  renderSideFoot();
   render(false);
   if (!S.autoSynced && S.data.review.syncDue) {
     S.autoSynced = true;
@@ -125,10 +158,24 @@ function setBadge(selector, count) {
   badge.hidden = !count;
 }
 
+/** Wide screens show Gmail status at the bottom of the sidebar. */
+function renderSideFoot() {
+  const el = $('#side-foot');
+  const r = S.data && S.data.review;
+  if (!r || !r.gmailAvailable) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = '<div class="row"><span class="dot"></span><b>' +
+    esc(r.lastSyncAt ? 'Gmail synced ' + timeAgo(r.lastSyncAt) : 'Not synced yet') + '</b></div>' +
+    '<div class="muted small">' + esc(r.autoSyncHours ? 'Checks every ' + r.autoSyncHours + ' h' : 'Automatic sync off') + '</div>' +
+    '<button type="button" class="btn" id="side-sync"' + (S.syncing ? ' disabled' : '') + '>' +
+    (S.syncing ? 'Syncing…' : 'Sync now') + '</button>';
+}
+
 /** Sync Gmail. `manual` = the Sync now button (shows errors); otherwise quiet. */
 async function runSync(manual) {
   if (S.syncing) return;
   S.syncing = true;
+  renderSideFoot();
   if (S.view === 'review') renderReview();
   try {
     const result = await call('syncNow');
@@ -175,10 +222,10 @@ function isOverdue(job) {
 }
 
 function card(job) {
-  const bits = ['#' + esc(job.requisition_id)];
-  if (job.date_applied) bits.push('applied ' + usDate(job.date_applied));
+  const bits = ['<span class="mono">' + esc(job.requisition_id) + '</span>'];
+  if (job.date_applied) bits.push('applied ' + shortDate(job.date_applied));
   if (job.follow_up) {
-    let text = 'follow up ' + usDate(job.follow_up);
+    let text = 'follow up ' + shortDate(job.follow_up);
     if (isOverdue(job)) {
       const days = daysBetween(job.follow_up, S.data.today);
       text = '<span class="overdue">' + text + (days ? ' (' + days + 'd overdue)' : ' (today)') + '</span>';
@@ -190,12 +237,15 @@ function card(job) {
   const url = /^https?:\/\//i.test(job.job_url || '') ? job.job_url : null;
   const mode = S.open[job.id];
   const pending = S.data.review.suggestions.filter(function (s) { return s.job.id === job.id; });
-  return '<article class="card' + (pending.length ? ' has-suggestion' : '') + '" data-id="' + job.id + '">' +
+  const editing = mode === 'edit' || mode === 'confirm-delete';
+  return '<article class="card' + (pending.length ? ' has-suggestion' : '') + (editing ? ' is-editing' : '') +
+    '" data-id="' + job.id + '">' +
     '<div class="card-head"><div class="card-title">' + esc(job.company) +
     ' <span>— ' + esc(job.role) + '</span></div>' +
-    '<span class="status ' + esc(job.status) + '">' + esc(job.status) + '</span></div>' +
-    (pending.length ? '<button type="button" class="suggest-pill" data-act="review">Suggested: ' +
-      esc(pending[0].suggested_status) + (pending.length > 1 ? ' +' + (pending.length - 1) : '') + ' — review ›</button>' : '') +
+    statusPill(job.status) + '</div>' +
+    (pending.length ? '<button type="button" class="suggest-pill" data-act="review"><span>Suggested: <b>' +
+      esc(pending[0].suggested_status) + '</b>' + (pending.length > 1 ? ' +' + (pending.length - 1) : '') +
+      '</span><b>Review ›</b></button>' : '') +
     '<div class="meta">' + bits.join(' · ') + '</div>' +
     (job.contact ? '<div class="meta">Contact: ' + esc(job.contact) + '</div>' : '') +
     (job.notes ? '<div class="notes">' + esc(job.notes) + '</div>' : '') +
@@ -204,7 +254,7 @@ function card(job) {
     '<button type="button" class="btn" data-act="history">' + (mode === 'history' ? 'Hide history' : 'History') + '</button>' +
     (url ? '<a class="btn" href="' + esc(url) + '" target="_blank" rel="noopener">Posting ↗</a>' : '') +
     '</div>' +
-    (mode === 'edit' || mode === 'confirm-delete' ? editForm(job, mode === 'confirm-delete') : '') +
+    (editing ? editForm(job, mode === 'confirm-delete') : '') +
     (mode === 'history' ? '<div class="panel history-panel"><p class="muted small">Loading history…</p></div>' : '') +
     '</article>';
 }
@@ -234,14 +284,36 @@ function field(name, value, opts) {
   return '<div class="' + (opts.wide ? 'wide' : '') + '"><label for="' + id + '">' + label + '</label>' + input + '</div>';
 }
 
-function editForm(job, confirmDelete) {
+/** Status as a row of buttons; the chosen one is kept in a hidden input named "status". */
+function statusSeg(selected) {
+  return '<fieldset class="seg-group-wrap"><legend>Status</legend><div class="seg-group">' +
+    S.data.statuses.map(function (s) {
+      return '<button type="button" class="seg" data-status="' + esc(s) + '" aria-pressed="' + (s === selected) + '">' + esc(s) + '</button>';
+    }).join('') + '</div><input type="hidden" name="status" value="' + esc(selected) + '"></fieldset>';
+}
+
+function followUpField(job, id) {
+  const overdue = isOverdue(job);
+  const days = overdue ? daysBetween(job.follow_up, S.data.today) : 0;
+  return '<label for="' + id + '">' + esc(S.data.labels.follow_up) + '</label>' +
+    '<input type="date" id="' + id + '" name="follow_up" value="' + esc(job.follow_up) + '">' +
+    (overdue ? '<p class="fu-note overdue">' + (days ? days + ' day' + (days === 1 ? '' : 's') + ' overdue' : 'Due today') + '</p>' : '') +
+    '<div class="quicks"><button type="button" class="quick" data-days="3">+3 days</button>' +
+    '<button type="button" class="quick" data-days="7">+1 week</button>' +
+    '<button type="button" class="quick" data-days="14">+2 weeks</button>' +
+    '<button type="button" class="quick" data-days="clear">Clear</button></div>';
+}
+
+function editForm(job, confirmDelete, inPanel) {
   const p = { prefix: 'e' + job.id };
   return '<form class="panel edit-form">' +
-    '<div class="grid">' +
-    field('status', job.status, p) + field('follow_up', job.follow_up, p) +
-    field('notes', job.notes, Object.assign({ wide: true }, p)) +
-    '</div>' +
-    '<details><summary class="small muted" style="margin-top:10px">More fields</summary><div class="grid">' +
+    (inPanel ? '' : '<div class="sheet-head"><div><b>' + esc(job.company) + '</b><div class="meta">' + esc(job.role) +
+      ' · <span class="mono">' + esc(job.requisition_id) + '</span></div></div>' +
+      '<button type="button" class="btn btn-ghost icon-btn" data-act="edit" aria-label="Close">' + ICON.close + '</button></div>') +
+    statusSeg(job.status) +
+    followUpField(job, 'e' + job.id + '-follow_up') +
+    field('notes', job.notes, p) +
+    '<details><summary class="small muted">More fields</summary><div class="grid">' +
     field('requisition_id', job.requisition_id, Object.assign({ required: true }, p)) +
     field('company', job.company, Object.assign({ required: true }, p)) +
     field('role', job.role, Object.assign({ required: true }, p)) +
@@ -256,14 +328,36 @@ function editForm(job, confirmDelete) {
       : '<div class="row" style="margin-top:12px">' +
         '<button type="button" class="btn btn-danger" data-act="delete">Delete</button>' +
         '<span style="flex:1"></span>' +
+        (inPanel ? '<button type="button" class="btn" data-act="close-detail">Cancel</button>' : '') +
         '<button type="submit" class="btn btn-primary">Save</button></div>') +
     '</form>';
 }
 
+/** The details panel beside the job table on wide screens. */
+function detailPanel(job) {
+  return '<aside class="card detail" data-id="' + job.id + '" aria-label="Job details">' +
+    '<div class="detail-head"><div>' + statusPill(job.status, true) + '<h3>' + esc(job.company) + '</h3>' +
+    '<div class="meta">' + esc(job.role) + ' · <span class="mono">' + esc(job.requisition_id) + '</span></div></div>' +
+    '<button type="button" class="btn btn-ghost icon-btn" data-act="close-detail" aria-label="Close details">' + ICON.close + '</button></div>' +
+    editForm(job, S.open[job.id] === 'confirm-delete', true) +
+    '<div class="detail-history"><h4>History</h4><div class="history-panel"><p class="muted small">Loading history…</p></div></div>' +
+    '</aside>';
+}
+
 function rerenderCard(id) {
   document.querySelectorAll('.card[data-id="' + id + '"]').forEach(function (el) {
-    el.outerHTML = card(jobById(id));
+    if (el.classList.contains('detail')) {
+      el.outerHTML = detailPanel(jobById(id));
+      showHistory(id);
+    } else {
+      el.outerHTML = card(jobById(id));
+    }
   });
+}
+
+function selectJob(id) {
+  S.sel = id;
+  renderJobList();
 }
 
 async function showHistory(id) {
@@ -287,6 +381,12 @@ async function onCardAction(button) {
   const act = button.dataset.act;
   const mode = S.open[id];
   if (act === 'review') return go('review');
+  if (act === 'close-detail') {
+    delete S.open[id];
+    S.sel = null;
+    renderJobList();
+    return;
+  }
   if (act === 'edit') {
     S.open[id] = mode === 'edit' || mode === 'confirm-delete' ? undefined : 'edit';
   } else if (act === 'history') {
@@ -300,6 +400,7 @@ async function onCardAction(button) {
     try {
       await call('deleteJob', id);
       delete S.open[id];
+      if (S.sel === id) S.sel = null;
       toast('Deleted ' + job.company + ' — ' + job.role);
       await reload();
     } catch (e) {
@@ -344,21 +445,35 @@ function visibleJobs() {
   });
 }
 
+function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
+
 function renderJobs() {
+  const due = S.data.followUpIds.map(jobById).filter(Boolean);
+  const pending = S.data.review.suggestions.length;
+  const summary = [plural(S.data.jobs.length, 'job')];
+  if (due.length) summary.push(due.length + ' follow-up' + (due.length === 1 ? '' : 's') + ' due');
+  if (pending) summary.push(plural(pending, 'suggestion') + ' to review');
   $('#view').innerHTML =
-    '<div class="page-head"><h2>Jobs</h2><div class="row">' +
+    '<div class="page-head"><div><h2>Jobs</h2><p class="muted small lede">' + esc(summary.join(' · ')) + '</p></div><div class="row">' +
     '<button type="button" class="btn btn-ghost" id="import">Import</button>' +
-    '<button type="button" class="btn btn-ghost" id="export">Export</button></div></div>' +
+    '<button type="button" class="btn" id="export">' + ICON.down + 'Export</button></div></div>' +
+    (due.length ? '<button type="button" class="banner" id="due-banner">' + ICON.clock +
+      '<span class="grow"><b>' + due.length + ' follow-up' + (due.length === 1 ? '' : 's') + ' due</b>' +
+      '<span class="names"> — ' + esc(due.slice(0, 3).map(function (j) { return j.company; }).join(', ')) +
+      (due.length > 3 ? ' and ' + (due.length - 3) + ' more' : '') + '</span></span>' +
+      '<span class="go">Show ›</span></button>' : '') +
     '<div class="filters"><div class="chips" id="chips"></div>' +
     '<div class="toolbar">' +
-    '<input type="search" id="search" placeholder="Search company, role, req ID, notes" value="' + esc(S.search) + '">' +
+    '<input type="search" id="search" aria-label="Search jobs" placeholder="Search company, role, req ID, notes" value="' + esc(S.search) + '">' +
     '</div></div>' +
-    '<p class="muted small" id="job-count"></p><div id="job-list"></div>';
+    '<p class="muted small" id="job-count"></p><div id="jobs-layout" class="jobs-layout"><div id="job-list"></div><div id="job-detail"></div></div>';
+  const banner = $('#due-banner');
+  if (banner) banner.addEventListener('click', function () { go('followups'); });
   renderChips();
   renderJobList();
   $('#search').addEventListener('input', function (e) {
     S.search = e.target.value;
-    renderJobList();
+    renderJobList(true);
   });
   $('#export').addEventListener('click', exportView);
   $('#import').addEventListener('click', function () { go('import'); });
@@ -386,14 +501,54 @@ function onChip(status) {
   }
   saveFilter();
   renderChips();
-  renderJobList();
+  renderJobList(true);
 }
 
-function renderJobList() {
+function jobsTable(jobs) {
+  const pending = {};
+  S.data.review.suggestions.forEach(function (s) { (pending[s.job.id] = pending[s.job.id] || []).push(s); });
+  const none = '<span class="faint">—</span>';
+  return '<div class="table-wrap"><table class="jobs"><thead><tr>' +
+    ['Company &amp; role', 'Req ID', 'Status', 'Applied', 'Follow up', 'Location'].map(function (h) {
+      return '<th scope="col">' + h + '</th>';
+    }).join('') + '</tr></thead><tbody>' + jobs.map(function (j) {
+      const s = (pending[j.id] || [])[0];
+      let followUp = none;
+      if (j.follow_up) {
+        followUp = shortDate(j.follow_up);
+        if (isOverdue(j)) {
+          const days = daysBetween(j.follow_up, S.data.today);
+          followUp = '<span class="overdue">' + followUp + ' <small>· ' + (days ? days + 'd late' : 'today') + '</small></span>';
+        }
+      }
+      const hint = s ? '<a class="sug" href="#" data-act="review">' + (s.kind === 'email'
+        ? 'Email says ' + esc(s.suggested_status) : 'Quiet ' + s.inactive_days + ' days — ' + esc(s.suggested_status) + '?') + ' →</a>' : '';
+      return '<tr data-id="' + j.id + '" tabindex="0"' + (S.sel === j.id ? ' class="sel" aria-selected="true"' : '') + '>' +
+        '<td><div class="co">' + esc(j.company) + '</div><div class="ro">' + esc(j.role) + '</div></td>' +
+        '<td class="mono">' + esc(j.requisition_id) + '</td>' +
+        '<td>' + statusPill(j.status) + hint + '</td>' +
+        '<td>' + (j.date_applied ? shortDate(j.date_applied) : none) + '</td>' +
+        '<td>' + followUp + '</td>' +
+        '<td>' + (j.location ? esc(j.location) : none) + '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+}
+
+/** keepDetail: leave an open details panel alone (typing in search must not wipe unsaved edits). */
+function renderJobList(keepDetail) {
   const jobs = visibleJobs();
+  const wide = WIDE.matches;
   $('#job-count').textContent = jobs.length + ' of ' + S.data.jobs.length + ' job(s)';
-  $('#job-list').innerHTML = jobs.length ? jobs.map(card).join('') :
-    '<div class="empty">' + (S.data.jobs.length ? 'No jobs match.' : 'No jobs yet. Tap <b>Add</b> or <b>Import</b>.') + '</div>';
+  $('#job-list').innerHTML = !jobs.length
+    ? '<div class="empty">' + (S.data.jobs.length ? 'No jobs match.' : 'No jobs yet. Tap <b>Add</b> or <b>Import</b>.') + '</div>'
+    : wide ? jobsTable(jobs) : jobs.map(card).join('');
+  const selected = wide && S.sel ? jobById(S.sel) : null;
+  if (S.sel && !selected && wide) S.sel = null;
+  const shown = $('#job-detail .detail');
+  if (!(keepDetail && selected && shown && shown.dataset.id === String(selected.id))) {
+    $('#job-detail').innerHTML = selected ? detailPanel(selected) : '';
+    if (selected) showHistory(selected.id);
+  }
+  $('#jobs-layout').classList.toggle('has-detail', !!selected);
 }
 
 async function exportView() {
@@ -424,7 +579,7 @@ function downloadCsv(filename, csv) {
 function renderFollowUps() {
   const due = S.data.followUpIds.map(jobById).filter(Boolean);
   $('#view').innerHTML = '<h2>Follow-ups due</h2>' +
-    '<p class="muted small">Follow-up date is today or earlier, and the job isn\'t Rejected, Withdrawn or an Offer. ' +
+    '<p class="muted small lede">Follow-up date is today or earlier, and the job isn\'t Rejected, Withdrawn or an Offer. ' +
     'Update the follow-up date once you\'ve followed up.</p>' +
     (due.length ? due.map(card).join('') : '<div class="empty">Nothing due. 🎉</div>');
 }
@@ -432,11 +587,26 @@ function renderFollowUps() {
 function bars(rows) {
   const max = Math.max.apply(null, rows.map(function (r) { return r.value; }).concat([1]));
   return '<div class="bars">' + rows.map(function (r) {
-    return '<div class="bar-row"><span>' + esc(r.label) + '</span>' +
-      '<div class="bar-track"><div class="bar-fill" style="width:' + (100 * r.value / max) + '%"></div></div>' +
+    return '<div class="bar-row" title="' + esc(r.label) + ': ' + r.value + '"><span>' + esc(r.label) + '</span>' +
+      '<div class="bar-track"><div class="bar-fill" style="width:' + (100 * r.value / max) + '%' +
+      (r.color ? ';background:' + r.color : '') + '"></div></div>' +
       '<span class="n">' + r.value + '</span></div>';
   }).join('') + '</div>';
 }
+
+/** Vertical columns for the most recent weeks, with the count above each. */
+function weekChart(weeks) {
+  const max = Math.max.apply(null, weeks.map(function (w) { return w.count; }).concat([1]));
+  const label = weeks.map(function (w) { return 'week of ' + shortDate(w.week) + ': ' + w.count; }).join('; ');
+  return '<div class="cols" role="img" aria-label="Applications per week. ' + esc(label) + '">' + weeks.map(function (w) {
+    return '<div class="col" title="Week of ' + esc(shortDate(w.week)) + ': ' + w.count + '"><span class="v">' + w.count +
+      '</span><div class="b" style="height:' + Math.round(130 * w.count / max) + 'px"></div></div>';
+  }).join('') + '</div><div class="axis" aria-hidden="true">' + weeks.map(function (w) {
+    return '<span>' + esc(shortDate(w.week)) + '</span>';
+  }).join('') + '</div>';
+}
+
+function pct(part, whole) { return whole ? Math.round(100 * part / whole) + '%' : '—'; }
 
 function renderStats() {
   const counts = S.data.counts;
@@ -445,17 +615,38 @@ function renderStats() {
     $('#view').innerHTML = '<h2>Stats</h2><div class="empty">No jobs yet.</div>';
     return;
   }
+  const dated = S.data.jobs.filter(function (j) { return j.date_applied; }).length;
+  const heard = counts.Interviewing + counts.Offer + counts.Rejected;
+  const interviews = counts.Interviewing + counts.Offer;
+  const kpis = [
+    [total, 'Jobs tracked', dated + ' with a date applied'],
+    [counts.Applied + counts.Interviewing, 'Still active', 'Applied or Interviewing'],
+    [pct(heard, total), 'Heard back', heard + ' of ' + total + ' got a response'],
+    [pct(interviews, total), 'Reached interviews', interviews + ' of ' + total + (counts.Offer ? ' — incl. ' + plural(counts.Offer, 'offer') : '')],
+  ];
+  const weeks = S.data.perWeek.slice(-8);
+  const due = S.data.followUpIds.map(jobById).filter(Boolean)
+    .sort(function (a, b) { return a.follow_up < b.follow_up ? -1 : 1; });
   $('#view').innerHTML = '<h2>Stats</h2>' +
-    '<div class="stat-grid"><div class="stat"><b>' + total + '</b><span>Total</span></div>' +
-    S.data.statuses.map(function (s) {
-      return '<div class="stat"><b>' + counts[s] + '</b><span>' + esc(s) + '</span></div>';
+    '<div class="kpis">' + kpis.map(function (k) {
+      return '<div class="kpi"><b>' + k[0] + '</b><span class="l">' + esc(k[1]) + '</span><span class="s">' + esc(k[2]) + '</span></div>';
     }).join('') + '</div>' +
-    '<h3>Jobs by status</h3>' +
-    bars(S.data.statuses.map(function (s) { return { label: s, value: counts[s] }; })) +
-    '<h3>Applications per week</h3>' +
-    (S.data.perWeek.length
-      ? bars(S.data.perWeek.map(function (w) { return { label: 'Wk ' + usDate(w.week).slice(0, 5), value: w.count }; }))
-      : '<div class="empty">No jobs have a date applied.</div>');
+    '<div class="stats-cards">' +
+    '<section class="card"><h3>Jobs by status</h3><p class="sub">Where every application stands today</p>' +
+    bars(S.data.statuses.map(function (s) {
+      return { label: s, value: counts[s], color: 'var(--s-' + s.toLowerCase() + ')' };
+    })) + '</section>' +
+    '<section class="card"><h3>Applications per week</h3><p class="sub">Week starting' +
+    (S.data.perWeek.length > weeks.length ? ' · last ' + weeks.length + ' weeks' : '') + '</p>' +
+    (weeks.length ? weekChart(weeks) : '<div class="empty">No jobs have a date applied.</div>') + '</section>' +
+    (due.length ? '<section class="card wide-card"><div class="card-title-row"><h3>Follow-ups due</h3>' +
+      '<button type="button" class="linklike" data-go="followups">See all</button></div><p class="sub" style="margin-bottom:6px">Oldest first</p>' +
+      due.slice(0, 5).map(function (j) {
+        const days = daysBetween(j.follow_up, S.data.today);
+        return '<div class="due"><div><b>' + esc(j.company) + '</b><div class="meta">' + esc(j.role) + '</div></div>' +
+          '<span class="overdue small">' + (days ? days + 'd late' : 'today') + '</span></div>';
+      }).join('') + '</section>' : '') +
+    '</div>';
 }
 
 // ---------------------------------------------------------------------------
@@ -493,23 +684,27 @@ function syncPanel(r) {
     '</div>';
 }
 
-function suggestionCard(s) {
+function suggestionCard(s, index, all) {
   const job = s.job;
-  const detail = s.kind === 'email'
+  const isEmail = s.kind === 'email';
+  const detail = isEmail
     ? '<div class="email"><div class="email-subject">' + esc(s.subject || '(no subject)') + '</div>' +
       '<div class="meta">' + esc(s.sender) + ' · ' +
       esc(new Date(s.email_date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })) + '</div>' +
       (s.snippet ? '<div class="notes">' + esc(s.snippet) + '</div>' : '') +
       '<div class="meta">Matched by ' + esc(MATCHED_BY[s.matched_by] || s.matched_by) + '</div></div>'
-    : '<div class="email"><div class="email-subject">No activity for ' + s.inactive_days + ' days</div>' +
-      '<div class="meta">No status change or matching email since then.</div></div>';
-  return '<article class="card suggestion" data-sid="' + s.id + '">' +
+    : '<div class="email"><div class="quiet-stat"><strong>' + s.inactive_days + '<small> days</small></strong>' +
+      '<div><div class="email-subject">No activity for ' + s.inactive_days + ' days</div>' +
+      '<div class="meta" style="margin-top:2px">No status change or matching email since then.</div></div></div></div>';
+  return '<article class="card suggestion" data-sid="' + s.id + '" aria-label="Suggestion for ' + esc(job.company) + '">' +
+    '<div class="kicker">' + (isEmail ? ICON.mail + 'From an email' : ICON.clock + 'Gone quiet') +
+    (all > 1 ? ' · ' + (index + 1) + ' of ' + all : '') + '</div>' +
     '<div class="card-title">' + esc(job.company) + ' <span>— ' + esc(job.role) + '</span></div>' +
-    '<div class="change"><span class="muted small">#' + esc(job.requisition_id) + '</span>' +
-    '<span class="status ' + esc(job.status) + '">' + esc(job.status) + '</span><span class="arrow">→</span>' +
-    '<span class="status ' + esc(s.suggested_status) + '">' + esc(s.suggested_status) + '</span></div>' +
+    '<div class="change"><span class="muted small mono">' + esc(job.requisition_id) + '</span>' +
+    statusPill(job.status, true) + '<span class="arrow">' + ICON.arrow + '</span>' + statusPill(s.suggested_status, true) + '</div>' +
     detail +
-    '<div class="actions"><button type="button" class="btn btn-primary" data-sact="accept">Accept</button>' +
+    '<div class="actions"><button type="button" class="btn btn-primary" data-sact="accept">' + ICON.check +
+    'Accept — ' + esc(s.suggested_status) + '</button>' +
     '<button type="button" class="btn" data-sact="dismiss">Dismiss</button></div>' +
     '<div class="accept-as"><select aria-label="Status to accept as">' + statusOptions(s.suggested_status) + '</select>' +
     '<button type="button" class="btn" data-sact="accept-as">Accept as</button></div>' +
@@ -521,7 +716,7 @@ function renderReview() {
   $('#view').innerHTML = '<h2>Review</h2>' + syncPanel(r) +
     (r.suggestions.length
       ? '<p class="muted small">Suggested status changes. Nothing changes until you accept.</p>' +
-        r.suggestions.map(suggestionCard).join('')
+        r.suggestions.map(function (x, i) { return suggestionCard(x, i, r.suggestions.length); }).join('')
       : '<div class="empty">Nothing to review. ✓</div>');
   const button = $('#sync-now');
   if (button) button.addEventListener('click', function () { runSync(true); });
@@ -555,22 +750,23 @@ async function onSuggestionAction(button) {
 
 function renderAdd() {
   S.pendingAdd = null;
-  $('#view').innerHTML = '<h2>Add job</h2>' +
-    '<form id="add-form" class="card"><div class="grid">' +
-    field('requisition_id', '', { required: true, prefix: 'a' }) +
-    field('company', '', { required: true, prefix: 'a' }) +
-    field('role', '', { required: true, prefix: 'a' }) +
-    field('status', 'Applied', { prefix: 'a' }) +
-    field('date_applied', S.data.today, { prefix: 'a' }) +
-    field('follow_up', '', { prefix: 'a' }) +
-    field('location', '', { prefix: 'a' }) +
-    field('salary_range', '', { prefix: 'a' }) +
-    field('job_url', '', { prefix: 'a' }) +
-    field('contact', '', { prefix: 'a' }) +
-    field('email_domain', '', { prefix: 'a' }) +
-    field('notes', '', { wide: true, prefix: 'a' }) +
-    '</div><div class="row end" style="margin-top:14px">' +
-    '<button type="submit" class="btn btn-primary">Add job</button></div></form>' +
+  const p = { prefix: 'a' };
+  $('#view').innerHTML = '<h2>Add job</h2><p class="muted small lede"><span class="req" style="color:var(--danger)">*</span> Required</p>' +
+    '<form id="add-form" class="card add-form">' +
+    field('company', '', Object.assign({ required: true }, p)) +
+    field('role', '', Object.assign({ required: true }, p)) +
+    field('requisition_id', '', Object.assign({ required: true }, p)) +
+    '<fieldset><legend>Status</legend><div class="picks">' + S.data.statuses.map(function (st) {
+      return '<button type="button" class="pick" data-pick="' + esc(st) + '" aria-pressed="' + (st === 'Applied') + '">' + esc(st) + '</button>';
+    }).join('') + '</div><input type="hidden" name="status" value="Applied"></fieldset>' +
+    '<div class="grid two">' + field('date_applied', S.data.today, p) + field('follow_up', '', p) + '</div>' +
+    '<details class="more"><summary><span><b>More details</b><small>Location, salary, link, contact, email domain, notes</small></span>' +
+    ICON.chev + '</summary><div class="grid">' +
+    field('location', '', p) + field('salary_range', '', p) + field('job_url', '', p) +
+    field('contact', '', p) + field('email_domain', '', p) + field('notes', '', Object.assign({ wide: true }, p)) +
+    '</div></details>' +
+    '<div class="row end" style="margin-top:16px">' +
+    '<button type="submit" class="btn btn-primary block">Add job</button></div></form>' +
     '<div id="add-warning"></div>';
   $('#add-form').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -954,18 +1150,65 @@ document.querySelectorAll('.tabbar button').forEach(function (b) {
 });
 $('#refresh').addEventListener('click', function () { reload(); });
 $('#view').addEventListener('click', function (e) {
-  const chip = e.target.closest('.chip');
+  const t = e.target;
+  const review = t.closest('[data-act="review"]');
+  if (review) { e.preventDefault(); return go('review'); }
+  const jump = t.closest('[data-go]');
+  if (jump) return go(jump.dataset.go);
+  const seg = t.closest('.seg');
+  if (seg) {
+    const group = seg.closest('fieldset');
+    group.querySelectorAll('.seg').forEach(function (b) { b.setAttribute('aria-pressed', String(b === seg)); });
+    group.querySelector('input[name="status"]').value = seg.dataset.status;
+    return;
+  }
+  const pick = t.closest('.pick');
+  if (pick) {
+    const group = pick.closest('fieldset');
+    group.querySelectorAll('.pick').forEach(function (b) { b.setAttribute('aria-pressed', String(b === pick)); });
+    group.querySelector('input[name="status"]').value = pick.dataset.pick;
+    return;
+  }
+  const quick = t.closest('.quick');
+  if (quick) {
+    const input = quick.closest('form').querySelector('input[name="follow_up"]');
+    input.value = quick.dataset.days === 'clear' ? '' : addDays(S.data.today, Number(quick.dataset.days));
+    return;
+  }
+  const chip = t.closest('.chip');
   if (chip) return onChip(chip.dataset.status);
-  const suggestion = e.target.closest('.suggestion [data-sact]');
+  const suggestion = t.closest('.suggestion [data-sact]');
   if (suggestion) return onSuggestionAction(suggestion);
-  const action = e.target.closest('.card [data-act]');
-  if (action) onCardAction(action);
+  const action = t.closest('.card [data-act]');
+  if (action) return onCardAction(action);
+  // Tapping the dimmed area behind the phone edit sheet closes it.
+  const sheet = t.closest('.card.is-editing');
+  if (sheet && t === sheet && !WIDE.matches) {
+    delete S.open[Number(sheet.dataset.id)];
+    return rerenderCard(Number(sheet.dataset.id));
+  }
+  const row = t.closest('table.jobs tbody tr');
+  if (row) selectJob(Number(row.dataset.id));
+});
+$('#view').addEventListener('keydown', function (e) {
+  const row = e.target.closest && e.target.closest('table.jobs tbody tr');
+  if (row && e.target === row && (e.key === 'Enter' || e.key === ' ')) {
+    e.preventDefault();
+    selectJob(Number(row.dataset.id));
+  }
+});
+$('#side-foot').addEventListener('click', function (e) {
+  if (e.target.closest('#side-sync')) runSync(true);
 });
 $('#view').addEventListener('submit', function (e) {
   if (!e.target.classList.contains('edit-form')) return;
   e.preventDefault();
   onEditSubmit(e.target);
 });
+// Cards on phones, table on wide screens: redraw when the window crosses the breakpoint.
+if (WIDE.addEventListener) {
+  WIDE.addEventListener('change', function () { if (S.data && S.view === 'jobs') renderJobList(); });
+}
 render(true);
 reload();
 })();
