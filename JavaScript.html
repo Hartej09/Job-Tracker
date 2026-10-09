@@ -723,10 +723,10 @@ function suggestionCard(s, index, all) {
     '<div class="change"><span class="muted small mono">' + esc(job.requisition_id) + '</span>' +
     statusPill(job.status, true) + '<span class="arrow">' + ICON.arrow + '</span>' + statusPill(s.suggested_status, true) + '</div>' +
     detail +
-    '<div class="actions"><button type="button" class="btn btn-primary" data-sact="accept">' + ICON.check +
+    '<div class="suggestion-foot"><button type="button" class="btn btn-primary" data-sact="accept">' + ICON.check +
     'Accept — ' + esc(s.suggested_status) + '</button>' +
-    '<button type="button" class="btn" data-sact="dismiss">Dismiss</button></div>' +
-    '<div class="accept-as"><select aria-label="Status to accept as">' + statusOptions(s.suggested_status) + '</select>' +
+    '<button type="button" class="btn" data-sact="dismiss">Dismiss</button>' +
+    '<select aria-label="Status to accept as">' + statusOptions(s.suggested_status) + '</select>' +
     '<button type="button" class="btn" data-sact="accept-as">Accept as</button></div>' +
     '</article>';
 }

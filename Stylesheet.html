@@ -20,6 +20,8 @@
     --warn-text: #5c3a00;
     --ok: #1d8a4e;
     --scrim: rgba(15, 30, 61, .48);
+    --badge-danger: #b42318;
+    --badge-accent: #2563eb;
     /* Status colours: solid (bars, dots) and soft (pills). */
     --s-applied: #2d63d6;
     --s-interviewing: #c0399a;
@@ -57,6 +59,8 @@
       --warn-text: #f0d9a0;
       --ok: #4cc27f;
       --scrim: rgba(0, 0, 0, .6);
+      --badge-danger: #c93a30;
+      --badge-accent: #3a6ee6;
       --s-applied: #5b8ef0;
       --s-interviewing: #e06cc0;
       --s-offer: #4cc27f;
@@ -144,10 +148,12 @@
   }
   .badge-count {
     position: absolute; top: 2px; left: calc(50% + 6px);
+    display: inline-flex; align-items: center; justify-content: center;
     min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
-    background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px;
+    background: var(--badge-danger); color: #fff; font-size: 11px; font-weight: 700; line-height: 1;
+    font-variant-numeric: tabular-nums;
   }
-  #review-badge { background: var(--accent); }
+  #review-badge { background: var(--badge-accent); }
 
   /* Buttons & inputs */
   .btn {
@@ -309,10 +315,11 @@
   .suggestion .email-subject { font-weight: 600; overflow-wrap: anywhere; }
   .suggestion .email .notes, .suggestion .email .meta { overflow-wrap: anywhere; }
   .suggestion .email .meta { margin-top: 4px; }
-  .suggestion .actions .btn-primary { flex: 1 1 100%; min-height: 48px; }
-  .accept-as { display: flex; gap: 8px; margin-top: 8px; }
-  .accept-as select { flex: 1; min-height: 44px; }
-  .accept-as .btn { min-height: 44px; font-size: 14px; }
+  .suggestion-foot { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; margin-top: 18px; }
+  .suggestion-foot .btn { min-height: 48px; padding: 0 14px; white-space: nowrap; }
+  @media (min-width: 620px) { .suggestion-foot .btn { padding: 0 20px; } }
+  .suggestion-foot .btn-primary { grid-column: 1 / -1; }
+  .suggestion-foot select { min-height: 48px; padding: 0 8px; }
   .quiet-stat { display: flex; align-items: center; gap: 16px; }
   .quiet-stat strong { font-size: 34px; letter-spacing: -.03em; line-height: 1; }
   .quiet-stat strong small { font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
@@ -502,7 +509,7 @@
     .tabbar button[data-view="add"] span { position: static; width: auto; height: auto; clip: auto; overflow: visible; }
     .tabbar button[data-view="add"][aria-current="page"] { background: var(--accent); box-shadow: none; }
     .tabbar .desk-only { display: flex; }
-    .badge-count { position: static; margin-left: auto; min-width: 20px; height: 20px; line-height: 20px; border-radius: 10px; font-size: 12px; }
+    .badge-count { position: static; margin-left: auto; min-width: 22px; height: 22px; border-radius: 11px; font-size: 12px; }
     .side-foot {
       display: flex; flex-direction: column; gap: 8px; position: fixed; left: 14px; bottom: 18px; width: calc(var(--sidebar) - 28px); z-index: 12;
       padding: 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border);
@@ -516,10 +523,10 @@
     .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .stats-cards .wide-card { grid-column: 1 / -1; }
-    .suggestion .actions .btn-primary { flex: 0 0 auto; }
     .suggestion { padding: 22px 24px; }
-    .suggestion .actions { margin-top: 18px; }
-    .accept-as { margin-top: 0; }
+    .suggestion-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 20px; }
+    .suggestion-foot .btn-primary { grid-column: auto; }
+    .suggestion-foot select { width: 190px; margin-left: auto; }
     .add-form { max-width: 720px; }
   }
 </style>
