@@ -1,121 +1,117 @@
-# Job Tracker
+# Job Tracker (Google Apps Script)
 
-A free, private, local-first job application tracker. Python + SQLite + Streamlit.
-Everything stays on your machine in a single SQLite file.
+A private job-application tracker that runs as a web app on Google's servers, over
+HTTPS, from your own Google account. Data lives in a Google Sheet in your Drive. Use
+it from your phone or computer anywhere; your PC doesn't need to be on.
 
-## Setup (once)
+Free. Nothing to install. Only you can open it.
 
-Requires Python 3.11+ on Windows. From this folder:
+## Files to copy into Apps Script
+
+| File here | Name in the Apps Script editor | What it is |
+| --- | --- | --- |
+| `Code.gs` | `Code.gs` | Server code: sheets, validation, import |
+| `Index.html` | `Index` | Page layout |
+| `Stylesheet.html` | `Stylesheet` | Styles (light/dark) |
+| `JavaScript.html` | `JavaScript` | Page behavior |
+
+Everything else in this folder (`dev/`, `tests/`) is for testing on a PC and is **not**
+copied into Apps Script.
+
+## Setup (once, ~5 minutes, best on a computer)
+
+1. **Create the sheet.** Go to <https://sheets.new> and name it `Job Tracker`.
+2. **Open the script editor.** In the sheet: **Extensions → Apps Script**.
+3. **Paste the code.**
+   - Replace everything in `Code.gs` with the contents of `Code.gs` from this folder.
+   - Click **+** next to *Files* → **HTML**, name it `Index` (no `.html`), and paste
+     `Index.html` into it, replacing what's there. Do the same for `Stylesheet` and
+     `JavaScript`.
+   - Click **Save** (💾).
+4. **Create the tabs and grant access.** In the toolbar's function dropdown pick
+   **`setup`**, then **Run**. Google asks for permission:
+   - Choose your account. You'll see **"Google hasn't verified this app"** — that's
+     normal for your own scripts. Click **Advanced → Go to Job Tracker (unsafe)**.
+   - The only permission requested is to view and edit **this one spreadsheet**
+     (`@OnlyCurrentDoc` in `Code.gs` keeps it from touching your other files).
+   - Back in the sheet you'll now have `Jobs` and `StatusHistory` tabs. You can delete
+     the empty `Sheet1`.
+5. **Publish it as a web app.** **Deploy → New deployment** → gear icon → **Web app**:
+   - *Execute as:* **Me**
+   - *Who has access:* **Only myself**
+   - **Deploy**, then copy the **Web app URL** (it ends in `/exec`).
+6. **Put it on your phone.** Open that URL in your phone's browser (signed in to the
+   same Google account) and add it to the home screen:
+   Safari → Share → **Add to Home Screen**, or Chrome → ⋮ → **Add to Home screen**.
+
+## Updating the code later
+
+Paste the new file contents, **Save**, then **Deploy → Manage deployments** → pencil
+icon → *Version:* **New version** → **Deploy**. The URL stays the same.
+(**Deploy → Test deployments** gives a `/dev` URL that always runs the latest saved
+code — handy for trying changes before publishing them.)
+
+## Using it
+
+- **Jobs** — cards for each job, filter by status, search company/role/requisition
+  ID/notes, **Export** the current view as CSV. **Update** a card to change status,
+  follow-up date, notes or any other field; **History** shows every status change.
+- **Add** — requisition ID, company and role are required. If you already have a job
+  with the same company + requisition ID (ignoring case), you're warned first and can
+  **Add anyway**.
+- **Follow-ups** — jobs whose follow-up date is today or earlier and that aren't
+  Rejected, Withdrawn or an Offer. The badge shows how many.
+- **Stats** — jobs by status and applications per week (weeks start Monday).
+- **Import** — upload a CSV. Columns are matched automatically (ignoring case, spaces
+  and punctuation, plus common names like "Req #", "Position", "Employer"); fix any
+  match with the dropdowns. Rows with a missing requisition ID/company/role, a date it
+  can't read or an unknown status are listed so you can fix them or tick **Skip**.
+  Duplicates are skipped and listed. Dates are read **US-style**: `03/04/2026` is
+  March 4. A blank status imports as Applied.
+
+### Editing the sheet directly
+
+The `Jobs` tab is a normal spreadsheet, so you can also edit there (handy for bulk
+changes on a computer):
+
+- Changing one **Status** cell at a time is recorded in `StatusHistory`, just like in
+  the app. Pasting over several status cells at once is not recorded (you'll get a
+  reminder).
+- Dates typed in a common format (e.g. `3/4/2026`) are converted to `2026-03-04`.
+- Don't edit `id`, `created_at` or `updated_at` (you'll get a warning if you try), and
+  add new jobs in the app rather than as new sheet rows — rows without an `id` are
+  ignored.
+
+## How the data is stored
+
+- `Jobs`: one row per job. `StatusHistory`: one row per status change with
+  `source` = manual / import (email / inactivity come in Phase 2).
+- All values are stored as plain text, so Sheets never reformats dates or treats text
+  as a formula. Dates are `YYYY-MM-DD`; timestamps are UTC.
+- Every status change goes through one function that writes the job and its history
+  row together, and undoes the job change if the history write fails.
+- Each save checks the job hasn't changed since you opened it (e.g. on another
+  device); if it has, nothing is overwritten and the latest version is shown.
+- Backups: in the sheet, **File → Download** (or **File → Make a copy**). Google also
+  keeps version history (**File → Version history**).
+
+## Troubleshooting
+
+- **"Sorry, unable to open the file at this time"** — usually several Google accounts
+  are signed in to the same browser. Open the URL in a private window, or make the
+  tracker's account the first one you signed in with.
+- **Changes don't show up after pasting new code** — you need a *new version* of the
+  deployment (see *Updating the code later*).
+
+## Testing on a PC (optional, for development)
+
+Requires Node.js 20+. No packages to install.
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-copy .env.example .env   # optional: change JOBTRACKER_DB_PATH
+node --test                # unit tests for Code.gs against an in-memory sheet
+node dev/serve.js          # preview the real UI at http://localhost:8765/?seed
 ```
 
-## Run
-
-Double-click **`run_desktop.cmd`**, or from PowerShell in this folder:
-
-```powershell
-.\.venv\Scripts\streamlit.exe run app.py
-```
-
-It opens at http://localhost:8501 and only this PC can connect
-(see `.streamlit/config.toml`). The database (`jobs.db` by default) is created and
-migrated automatically on start. Close the window (or Ctrl+C) to stop.
-
-## Use it on your phone (same network)
-
-The app and data stay on your PC; the phone opens it in its browser over whatever
-network both are connected to — home Wi-Fi, office or café Wi-Fi, or the PC's own
-Windows **Mobile hotspot** (Settings → Network & internet → Mobile hotspot). The PC
-must be on and awake.
-
-One-time setup:
-
-1. **Allow the app through the firewall for devices on the same network.** In
-   PowerShell *run as administrator*:
-
-   ```powershell
-   New-NetFirewallRule -DisplayName "Job Tracker (same network)" -Direction Inbound -Protocol TCP -LocalPort 8501 -Profile Any -RemoteAddress LocalSubnet -Action Allow
-   ```
-
-   This allows only port 8501, and only from devices on the same local network as
-   the PC, on any network type (home, public or work).
-2. **Set a password (strongly recommended).** Copy `.env.example` to `.env` and set
-   `JOBTRACKER_PASSWORD=...`. "Same network" includes everyone else on that network —
-   on café or office Wi-Fi that means strangers.
-
-Each time: double-click **`run_phone.cmd`**, then open the **Network URL** it prints
-(e.g. `http://192.168.0.111:8501`) on your phone. Phones open the **Phone view** page
-automatically. To get an app icon: Safari → Share → *Add to Home Screen*, or
-Chrome → ⋮ → *Add to Home screen*. The address changes between networks (and
-sometimes on the same network), so use the Network URL printed that day.
-
-Good to know:
-
-- Many public and office Wi-Fi networks block devices from talking to each other
-  ("client isolation"). If the phone can't connect there, turn on the PC's Mobile
-  hotspot and connect the phone to that — it works anywhere.
-- The connection is plain HTTP, so on open public Wi-Fi others on the network could
-  in principle see the traffic (including the password). On untrusted Wi-Fi, prefer
-  the PC's hotspot.
-
-To turn phone access off, just use `run_desktop.cmd`. To remove the firewall rule:
-`Remove-NetFirewallRule -DisplayName "Job Tracker (same network)"` (as administrator).
-
-## Features (Phase 1)
-
-- **Phone view**: one card per job, follow-ups due at the top, status filter and
-  search, and an *Update* form per job (status, follow-up date, notes).
-- **Jobs**: editable table with a status dropdown, filters (status + text search over
-  company/role/requisition ID/notes), delete with confirmation, per-job status history,
-  and CSV export of the current filtered view.
-  Edits are saved by diffing against the database; if a row changed elsewhere since
-  you loaded it, that row is skipped and reported instead of being overwritten.
-- **Add job**: requisition ID, company and role are required. A duplicate company +
-  requisition ID (case-insensitive) shows a warning with an "Add anyway" option.
-- **Follow-ups**: jobs whose follow-up date is today or earlier and whose status is
-  not Rejected, Withdrawn or Offer. The sidebar shows the count.
-- **Stats**: jobs by status and applications per week (weeks start Monday).
-- **Import CSV**:
-  1. Upload a file; each field is auto-matched to a column (ignoring case, spaces and
-     punctuation, plus common aliases such as "Req #", "Position", "Employer").
-     Correct any match with the dropdowns.
-  2. Rows missing requisition ID/company/role, with unrecognized dates, or with
-     unknown statuses appear in an editable table — fix them or tick **Skip**.
-  3. Preview, then import. Duplicates (already in the tracker, or repeated in the file)
-     are skipped and listed.
-
-  Dates use **US order**: `03/04/2026` is March 4. Also accepted: `2026-03-04`,
-  `3/4/26`, `Mar 4 2026`, `March 4, 2026`, `4 Mar 2026`, `04-Mar-2026`, and
-  timestamps like `2026-03-04T10:15:00Z`. A blank status imports as Applied.
-
-## Data
-
-- SQLite with WAL mode; all SQL is in `db.py`.
-- Every status change goes through `db.change_status()`, which updates the job and
-  writes `status_history` in one transaction (`source` = manual/email/import/inactivity).
-- Schema version is tracked with `PRAGMA user_version`; migrations run on start.
-- Dates are stored as `YYYY-MM-DD`; timestamps as UTC ISO-8601.
-
-## Tests
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest
-```
-
-Each test uses its own temporary database.
-
-## Files
-
-| File | Purpose |
-| --- | --- |
-| `app.py` | Streamlit UI (no SQL) |
-| `db.py` | Schema, migrations and all queries |
-| `csv_import.py` | CSV header mapping, date/status parsing, row validation |
-| `samples/messy_jobs.csv` | Example CSV with non-matching headers and problem rows |
-| `run_desktop.cmd` / `run_phone.cmd` | Start the app for this PC only / for phones on the same Wi-Fi |
-| `.streamlit/config.toml` | Localhost-only by default; usage statistics off |
-| `tests/` | pytest suite |
+The preview runs `Code.gs` in the browser against fake Sheets services
+(`dev/gas-mocks.js`), seeded with sample jobs; `dev/sample_jobs.csv` is a messy CSV
+for trying the import.

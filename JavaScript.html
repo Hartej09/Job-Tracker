@@ -1,0 +1,764 @@
+<script>
+(function () {
+'use strict';
+
+// ---------------------------------------------------------------------------
+// State & helpers
+// ---------------------------------------------------------------------------
+
+const FOLLOW_UP_EXCLUDED = ['Rejected', 'Withdrawn', 'Offer'];
+
+const S = {
+  data: null,       // result of getAppData()
+  view: 'jobs',
+  filter: null,     // Set of statuses shown on the Jobs page
+  search: '',
+  open: {},         // job id -> 'edit' | 'confirm-delete' | 'history'
+  pendingAdd: null, // form data waiting for "Add anyway"
+  imp: null,        // CSV import in progress
+  importReport: null,
+};
+
+function $(selector, root) { return (root || document).querySelector(selector); }
+
+function esc(value) {
+  return String(value === null || value === undefined ? '' : value).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function usDate(iso) {
+  if (!iso) return '';
+  const p = iso.split('-');
+  return p[1] + '/' + p[2] + '/' + p[0];
+}
+
+function daysBetween(fromIso, toIso) {
+  return Math.round((Date.parse(toIso + 'T00:00:00Z') - Date.parse(fromIso + 'T00:00:00Z')) / 86400000);
+}
+
+function jobById(id) {
+  return S.data.jobs.filter(function (j) { return j.id === Number(id); })[0];
+}
+
+let busyCount = 0;
+function call(name) {
+  const args = Array.prototype.slice.call(arguments, 1);
+  busyCount += 1;
+  $('#progress').hidden = false;
+  function done() {
+    busyCount -= 1;
+    if (!busyCount) $('#progress').hidden = true;
+  }
+  return new Promise(function (resolve, reject) {
+    const runner = google.script.run
+      .withSuccessHandler(function (r) { done(); resolve(r); })
+      .withFailureHandler(function (e) { done(); reject(e); });
+    runner[name].apply(runner, args);
+  });
+}
+
+function errorText(e) {
+  return String(e && e.message ? e.message : e).replace(/^(Error|Exception):\s*/, '');
+}
+
+let toastTimer = null;
+function toast(message, isError) {
+  const t = $('#toast');
+  t.textContent = message;
+  t.className = 'show' + (isError ? ' error' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { t.className = ''; }, isError ? 6000 : 2500);
+}
+
+function handleError(e) {
+  const message = errorText(e);
+  if (message.indexOf('CONFLICT: ') === 0) {
+    toast(message.slice(10) + ' — showing the latest version.', true);
+    reload();
+  } else {
+    toast(message, true);
+  }
+}
+
+function loadSavedFilter() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('jobTracker.filter'));
+    if (Array.isArray(saved) && saved.length) return new Set(saved);
+  } catch (e) { /* storage unavailable */ }
+  return null;
+}
+
+function saveFilter() {
+  try { localStorage.setItem('jobTracker.filter', JSON.stringify(Array.from(S.filter))); } catch (e) { /* ignore */ }
+}
+
+// ---------------------------------------------------------------------------
+// Loading & navigation
+// ---------------------------------------------------------------------------
+
+async function reload() {
+  try {
+    S.data = await call('getAppData');
+  } catch (e) {
+    toast(errorText(e), true);
+    return;
+  }
+  if (!S.filter) S.filter = loadSavedFilter() || new Set(S.data.statuses);
+  const link = $('#sheet-link');
+  link.href = S.data.sheetUrl;
+  link.hidden = false;
+  const badge = $('#followup-badge');
+  badge.textContent = S.data.followUpIds.length;
+  badge.hidden = !S.data.followUpIds.length;
+  render(false);
+}
+
+function go(view) {
+  S.view = view;
+  render(true);
+  window.scrollTo(0, 0);
+}
+
+/** Re-render the current page. Forms (Add, Import) are only rebuilt when navigating to them. */
+function render(navigated) {
+  document.querySelectorAll('.tabbar button').forEach(function (b) {
+    if (b.dataset.view === S.view) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
+  if (!S.data) return;
+  if (S.view === 'jobs') renderJobs();
+  else if (S.view === 'followups') renderFollowUps();
+  else if (S.view === 'stats') renderStats();
+  else if (navigated && S.view === 'add') renderAdd();
+  else if (navigated && S.view === 'import') renderImport();
+}
+
+// ---------------------------------------------------------------------------
+// Job cards (shared by Jobs and Follow-ups)
+// ---------------------------------------------------------------------------
+
+function isOverdue(job) {
+  return job.follow_up && job.follow_up <= S.data.today && FOLLOW_UP_EXCLUDED.indexOf(job.status) < 0;
+}
+
+function card(job) {
+  const bits = ['#' + esc(job.requisition_id)];
+  if (job.date_applied) bits.push('applied ' + usDate(job.date_applied));
+  if (job.follow_up) {
+    let text = 'follow up ' + usDate(job.follow_up);
+    if (isOverdue(job)) {
+      const days = daysBetween(job.follow_up, S.data.today);
+      text = '<span class="overdue">' + text + (days ? ' (' + days + 'd overdue)' : ' (today)') + '</span>';
+    }
+    bits.push(text);
+  }
+  if (job.location) bits.push(esc(job.location));
+  if (job.salary_range) bits.push(esc(job.salary_range));
+  const url = /^https?:\/\//i.test(job.job_url || '') ? job.job_url : null;
+  const mode = S.open[job.id];
+  return '<article class="card" data-id="' + job.id + '">' +
+    '<div class="card-head"><div class="card-title">' + esc(job.company) +
+    ' <span>— ' + esc(job.role) + '</span></div>' +
+    '<span class="status ' + esc(job.status) + '">' + esc(job.status) + '</span></div>' +
+    '<div class="meta">' + bits.join(' · ') + '</div>' +
+    (job.contact ? '<div class="meta">Contact: ' + esc(job.contact) + '</div>' : '') +
+    (job.notes ? '<div class="notes">' + esc(job.notes) + '</div>' : '') +
+    '<div class="actions">' +
+    '<button type="button" class="btn" data-act="edit">' + (mode === 'edit' || mode === 'confirm-delete' ? 'Close' : 'Update') + '</button>' +
+    '<button type="button" class="btn" data-act="history">' + (mode === 'history' ? 'Hide history' : 'History') + '</button>' +
+    (url ? '<a class="btn" href="' + esc(url) + '" target="_blank" rel="noopener">Posting ↗</a>' : '') +
+    '</div>' +
+    (mode === 'edit' || mode === 'confirm-delete' ? editForm(job, mode === 'confirm-delete') : '') +
+    (mode === 'history' ? '<div class="panel history-panel"><p class="muted small">Loading history…</p></div>' : '') +
+    '</article>';
+}
+
+function statusOptions(selected, extra) {
+  return S.data.statuses.concat(extra ? [extra] : []).map(function (s) {
+    return '<option' + (s === selected ? ' selected' : '') + '>' + esc(s) + '</option>';
+  }).join('');
+}
+
+function field(name, value, opts) {
+  opts = opts || {};
+  const label = esc(S.data.labels[name]) + (opts.required ? ' <span class="req">*</span>' : '');
+  const id = (opts.prefix || 'f') + '-' + name;
+  let input;
+  if (name === 'status') {
+    input = '<select id="' + id + '" name="status">' + statusOptions(value || 'Applied') + '</select>';
+  } else if (name === 'notes') {
+    input = '<textarea id="' + id + '" name="notes">' + esc(value) + '</textarea>';
+  } else {
+    const type = name === 'date_applied' || name === 'follow_up' ? 'date' : 'text';
+    const extra = name === 'job_url' ? ' inputmode="url" autocapitalize="off"' :
+      name === 'email_domain' ? ' autocapitalize="off" placeholder="e.g. acme.com"' : '';
+    input = '<input type="' + type + '" id="' + id + '" name="' + name + '" value="' + esc(value) + '"' +
+      (opts.required ? ' required' : '') + extra + '>';
+  }
+  return '<div class="' + (opts.wide ? 'wide' : '') + '"><label for="' + id + '">' + label + '</label>' + input + '</div>';
+}
+
+function editForm(job, confirmDelete) {
+  const p = { prefix: 'e' + job.id };
+  return '<form class="panel edit-form">' +
+    '<div class="grid">' +
+    field('status', job.status, p) + field('follow_up', job.follow_up, p) +
+    field('notes', job.notes, Object.assign({ wide: true }, p)) +
+    '</div>' +
+    '<details><summary class="small muted" style="margin-top:10px">More fields</summary><div class="grid">' +
+    field('requisition_id', job.requisition_id, Object.assign({ required: true }, p)) +
+    field('company', job.company, Object.assign({ required: true }, p)) +
+    field('role', job.role, Object.assign({ required: true }, p)) +
+    field('date_applied', job.date_applied, p) + field('location', job.location, p) +
+    field('salary_range', job.salary_range, p) + field('job_url', job.job_url, p) +
+    field('contact', job.contact, p) + field('email_domain', job.email_domain, p) +
+    '</div></details>' +
+    (confirmDelete
+      ? '<div class="notice warn">Delete this job and its status history? This can\'t be undone.' +
+        '<div class="row" style="margin-top:8px"><button type="button" class="btn btn-danger solid" data-act="delete-yes">Yes, delete</button>' +
+        '<button type="button" class="btn" data-act="delete-no">Keep it</button></div></div>'
+      : '<div class="row" style="margin-top:12px">' +
+        '<button type="button" class="btn btn-danger" data-act="delete">Delete</button>' +
+        '<span style="flex:1"></span>' +
+        '<button type="submit" class="btn btn-primary">Save</button></div>') +
+    '</form>';
+}
+
+function rerenderCard(id) {
+  document.querySelectorAll('.card[data-id="' + id + '"]').forEach(function (el) {
+    el.outerHTML = card(jobById(id));
+  });
+}
+
+async function showHistory(id) {
+  try {
+    const rows = await call('getHistory', id);
+    const panel = $('.card[data-id="' + id + '"] .history-panel');
+    if (!panel) return;
+    panel.innerHTML = rows.length ? '<ul class="history">' + rows.map(function (h) {
+      const when = new Date(h.changed_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+      const change = h.old_status ? esc(h.old_status) + ' → ' + esc(h.new_status) : esc(h.new_status);
+      return '<li>' + esc(when) + ' — ' + change + ' <span class="muted">(' + esc(h.source) + ')</span></li>';
+    }).join('') + '</ul>' : '<p class="muted small">No history.</p>';
+  } catch (e) {
+    handleError(e);
+  }
+}
+
+async function onCardAction(button) {
+  const cardEl = button.closest('.card');
+  const id = Number(cardEl.dataset.id);
+  const act = button.dataset.act;
+  const mode = S.open[id];
+  if (act === 'edit') {
+    S.open[id] = mode === 'edit' || mode === 'confirm-delete' ? undefined : 'edit';
+  } else if (act === 'history') {
+    S.open[id] = mode === 'history' ? undefined : 'history';
+  } else if (act === 'delete') {
+    S.open[id] = 'confirm-delete';
+  } else if (act === 'delete-no') {
+    S.open[id] = 'edit';
+  } else if (act === 'delete-yes') {
+    const job = jobById(id);
+    try {
+      await call('deleteJob', id);
+      delete S.open[id];
+      toast('Deleted ' + job.company + ' — ' + job.role);
+      await reload();
+    } catch (e) {
+      handleError(e);
+    }
+    return;
+  }
+  rerenderCard(id);
+  if (S.open[id] === 'history') showHistory(id);
+}
+
+async function onEditSubmit(form) {
+  const id = Number(form.closest('.card').dataset.id);
+  const job = jobById(id);
+  const changes = {};
+  new FormData(form).forEach(function (value, key) { changes[key] = value; });
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    await call('updateJob', id, changes, job.updated_at);
+    delete S.open[id];
+    toast('Saved ' + (changes.company || job.company));
+    await reload();
+  } catch (e) {
+    button.disabled = false;
+    handleError(e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Jobs page
+// ---------------------------------------------------------------------------
+
+function visibleJobs() {
+  const q = S.search.trim().toLowerCase();
+  return S.data.jobs.filter(function (j) {
+    if (!S.filter.has(j.status)) return false;
+    if (!q) return true;
+    return [j.company, j.role, j.requisition_id, j.notes].some(function (v) {
+      return v && v.toLowerCase().indexOf(q) >= 0;
+    });
+  });
+}
+
+function renderJobs() {
+  $('#view').innerHTML =
+    '<h2>Jobs</h2>' +
+    '<div class="chips" id="chips"></div>' +
+    '<div class="toolbar">' +
+    '<input type="search" id="search" placeholder="Search company, role, req ID, notes" value="' + esc(S.search) + '">' +
+    '<button type="button" class="btn" id="export">Export</button></div>' +
+    '<p class="muted small" id="job-count"></p><div id="job-list"></div>';
+  renderChips();
+  renderJobList();
+  $('#search').addEventListener('input', function (e) {
+    S.search = e.target.value;
+    renderJobList();
+  });
+  $('#export').addEventListener('click', exportView);
+}
+
+function renderChips() {
+  const all = S.filter.size === S.data.statuses.length;
+  $('#chips').innerHTML =
+    '<button type="button" class="chip" data-status="*" aria-pressed="' + all + '">All ' + S.data.jobs.length + '</button>' +
+    S.data.statuses.map(function (s) {
+      return '<button type="button" class="chip" data-status="' + esc(s) + '" aria-pressed="' +
+        (!all && S.filter.has(s)) + '">' + esc(s) + ' ' + S.data.counts[s] + '</button>';
+    }).join('');
+}
+
+function onChip(status) {
+  const statuses = S.data.statuses;
+  const all = S.filter.size === statuses.length;
+  if (status === '*') S.filter = new Set(statuses);
+  else if (all) S.filter = new Set([status]);
+  else {
+    if (S.filter.has(status)) S.filter.delete(status);
+    else S.filter.add(status);
+    if (!S.filter.size) S.filter = new Set(statuses);
+  }
+  saveFilter();
+  renderChips();
+  renderJobList();
+}
+
+function renderJobList() {
+  const jobs = visibleJobs();
+  $('#job-count').textContent = jobs.length + ' of ' + S.data.jobs.length + ' job(s)';
+  $('#job-list').innerHTML = jobs.length ? jobs.map(card).join('') :
+    '<div class="empty">' + (S.data.jobs.length ? 'No jobs match.' : 'No jobs yet. Tap <b>Add</b> or <b>Import</b>.') + '</div>';
+}
+
+async function exportView() {
+  const ids = visibleJobs().map(function (j) { return j.id; });
+  if (!ids.length) return toast('Nothing to export.');
+  try {
+    const csv = await call('exportCsv', ids);
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'jobs_' + S.data.today + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  } catch (e) {
+    handleError(e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Follow-ups & stats
+// ---------------------------------------------------------------------------
+
+function renderFollowUps() {
+  const due = S.data.followUpIds.map(jobById).filter(Boolean);
+  $('#view').innerHTML = '<h2>Follow-ups due</h2>' +
+    '<p class="muted small">Follow-up date is today or earlier, and the job isn\'t Rejected, Withdrawn or an Offer. ' +
+    'Update the follow-up date once you\'ve followed up.</p>' +
+    (due.length ? due.map(card).join('') : '<div class="empty">Nothing due. 🎉</div>');
+}
+
+function bars(rows) {
+  const max = Math.max.apply(null, rows.map(function (r) { return r.value; }).concat([1]));
+  return '<div class="bars">' + rows.map(function (r) {
+    return '<div class="bar-row"><span>' + esc(r.label) + '</span>' +
+      '<div class="bar-track"><div class="bar-fill" style="width:' + (100 * r.value / max) + '%"></div></div>' +
+      '<span class="n">' + r.value + '</span></div>';
+  }).join('') + '</div>';
+}
+
+function renderStats() {
+  const counts = S.data.counts;
+  const total = S.data.jobs.length;
+  if (!total) {
+    $('#view').innerHTML = '<h2>Stats</h2><div class="empty">No jobs yet.</div>';
+    return;
+  }
+  $('#view').innerHTML = '<h2>Stats</h2>' +
+    '<div class="stat-grid"><div class="stat"><b>' + total + '</b><span>Total</span></div>' +
+    S.data.statuses.map(function (s) {
+      return '<div class="stat"><b>' + counts[s] + '</b><span>' + esc(s) + '</span></div>';
+    }).join('') + '</div>' +
+    '<h3>Jobs by status</h3>' +
+    bars(S.data.statuses.map(function (s) { return { label: s, value: counts[s] }; })) +
+    '<h3>Applications per week</h3>' +
+    (S.data.perWeek.length
+      ? bars(S.data.perWeek.map(function (w) { return { label: 'Wk ' + usDate(w.week).slice(0, 5), value: w.count }; }))
+      : '<div class="empty">No jobs have a date applied.</div>');
+}
+
+// ---------------------------------------------------------------------------
+// Add job page
+// ---------------------------------------------------------------------------
+
+function renderAdd() {
+  S.pendingAdd = null;
+  $('#view').innerHTML = '<h2>Add job</h2>' +
+    '<form id="add-form" class="card"><div class="grid">' +
+    field('requisition_id', '', { required: true, prefix: 'a' }) +
+    field('company', '', { required: true, prefix: 'a' }) +
+    field('role', '', { required: true, prefix: 'a' }) +
+    field('status', 'Applied', { prefix: 'a' }) +
+    field('date_applied', S.data.today, { prefix: 'a' }) +
+    field('follow_up', '', { prefix: 'a' }) +
+    field('location', '', { prefix: 'a' }) +
+    field('salary_range', '', { prefix: 'a' }) +
+    field('job_url', '', { prefix: 'a' }) +
+    field('contact', '', { prefix: 'a' }) +
+    field('email_domain', '', { prefix: 'a' }) +
+    field('notes', '', { wide: true, prefix: 'a' }) +
+    '</div><div class="row end" style="margin-top:14px">' +
+    '<button type="submit" class="btn btn-primary">Add job</button></div></form>' +
+    '<div id="add-warning"></div>';
+  $('#add-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    const data = {};
+    new FormData(e.target).forEach(function (value, key) { data[key] = value; });
+    submitAdd(data, false);
+  });
+}
+
+async function submitAdd(data, force) {
+  const button = $('#add-form button[type="submit"]');
+  button.disabled = true;
+  try {
+    const result = await call('addJob', data, force);
+    if (result.duplicates) {
+      S.pendingAdd = data;
+      $('#add-warning').innerHTML = '<div class="notice warn">You already have ' + result.duplicates.length +
+        ' job(s) at <b>' + esc(data.company.trim()) + '</b> with requisition ID <b>' + esc(data.requisition_id.trim()) +
+        '</b>:<ul>' + result.duplicates.map(function (j) {
+          return '<li>' + esc(j.role) + ' — ' + esc(j.status) + (j.date_applied ? ', applied ' + usDate(j.date_applied) : '') + '</li>';
+        }).join('') + '</ul><div class="row" style="margin-top:8px">' +
+        '<button type="button" class="btn btn-primary" id="add-anyway">Add anyway</button>' +
+        '<button type="button" class="btn" id="add-cancel">Cancel</button></div></div>';
+      $('#add-anyway').addEventListener('click', function () { submitAdd(S.pendingAdd, true); });
+      $('#add-cancel').addEventListener('click', function () {
+        S.pendingAdd = null;
+        $('#add-warning').innerHTML = '';
+      });
+      button.disabled = false;
+      return;
+    }
+    toast('Added ' + result.job.company + ' — ' + result.job.role);
+    renderAdd();
+    await reload();
+  } catch (e) {
+    button.disabled = false;
+    handleError(e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CSV import page
+// ---------------------------------------------------------------------------
+
+function renderImport() {
+  const imp = S.imp;
+  const report = S.importReport;
+  $('#view').innerHTML = '<h2>Import CSV</h2>' +
+    (report ? '<div class="notice ok">' + esc(report.summary) +
+      (report.details.length ? '<ul>' + report.details.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ul>' : '') +
+      '</div>' : '') +
+    '<div class="card"><label for="csv-file">' + (imp ? 'File: <b>' + esc(imp.name) + '</b> (' + imp.rows.length +
+      ' rows) — choose another' : 'Choose a CSV file') + '</label>' +
+    '<input type="file" id="csv-file" accept=".csv,text/csv">' +
+    '<p class="muted small">Dates are read US-style: 03/04/2026 is March 4. A blank status imports as Applied.</p></div>' +
+    '<div id="imp-mapping"></div><div id="imp-fix"></div><div id="imp-preview"></div>';
+  $('#csv-file').addEventListener('change', onFileChosen);
+  if (imp) {
+    renderMapping();
+    renderFix();
+    renderPreview();
+  }
+}
+
+function readFileAs(file, encoding) {
+  return new Promise(function (resolve, reject) {
+    const reader = new FileReader();
+    reader.onload = function () { resolve(reader.result); };
+    reader.onerror = function () { reject(reader.error); };
+    reader.readAsText(file, encoding);
+  });
+}
+
+async function onFileChosen(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    let text = await readFileAs(file, 'utf-8');
+    if (text.indexOf('�') >= 0) text = await readFileAs(file, 'windows-1252');
+    const parsed = await call('parseImportFile', text);
+    if (!parsed.rows.length) return toast('That file has no data rows.', true);
+    const mapIdx = {};
+    S.data.fields.forEach(function (f) { mapIdx[f] = parsed.mapping[f] ? parsed.headers.indexOf(parsed.mapping[f]) : -1; });
+    S.importReport = null;
+    S.imp = {
+      name: file.name, headers: parsed.headers, rows: parsed.rows, mapIdx: mapIdx,
+      problems: {}, edits: {}, skip: {}, plan: null, token: 0,
+    };
+    renderImport();
+    await runCheck(true);
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+function renderMapping() {
+  const imp = S.imp;
+  const options = function (selected) {
+    return '<option value="-1">— not mapped —</option>' + imp.headers.map(function (h, i) {
+      return '<option value="' + i + '"' + (i === selected ? ' selected' : '') + '>' + esc(h || '(column ' + (i + 1) + ')') + '</option>';
+    }).join('');
+  };
+  const unmapped = S.data.requiredFields.filter(function (f) { return imp.mapIdx[f] < 0; })
+    .map(function (f) { return S.data.labels[f]; });
+  $('#imp-mapping').innerHTML = '<h3>1. Match columns</h3>' +
+    '<p class="muted small">Suggested matches are pre-selected. Fix any that are wrong.</p>' +
+    '<div class="card map-grid">' + S.data.fields.map(function (f) {
+      const required = S.data.requiredFields.indexOf(f) >= 0;
+      return '<div><label for="map-' + f + '">' + esc(S.data.labels[f]) + (required ? ' <span class="req">*</span>' : '') +
+        '</label><select id="map-' + f + '" data-field="' + f + '">' + options(imp.mapIdx[f]) + '</select></div>';
+    }).join('') + '</div>' +
+    (unmapped.length ? '<div class="notice warn">' + esc(unmapped.join(', ')) +
+      ' not matched — every row will need it filled in below.</div>' : '');
+  $('#imp-mapping').querySelectorAll('select').forEach(function (sel) {
+    sel.addEventListener('change', function () {
+      imp.mapIdx[sel.dataset.field] = Number(sel.value);
+      imp.edits = {};
+      imp.skip = {};
+      renderMapping();
+      runCheck(true);
+    });
+  });
+}
+
+/** Raw records from the file using the current mapping (optionally with fixes and skips). */
+function importRecords(withFixes) {
+  const imp = S.imp;
+  return imp.rows.filter(function (r) { return !(withFixes && imp.skip[r._row]); }).map(function (r) {
+    const record = { _row: r._row };
+    S.data.fields.forEach(function (f) {
+      record[f] = imp.mapIdx[f] >= 0 ? r.values[imp.mapIdx[f]] : '';
+    });
+    if (withFixes && imp.edits[r._row]) Object.assign(record, imp.edits[r._row]);
+    return record;
+  });
+}
+
+async function runCheck(fresh) {
+  const imp = S.imp;
+  const token = ++imp.token;
+  try {
+    const plan = await call('checkImport', importRecords(!fresh));
+    if (imp !== S.imp || token !== imp.token) return; // a newer check is running
+    if (fresh) {
+      imp.problems = {};
+      plan.invalid.forEach(function (i) { imp.problems[i.raw._row] = i.problems; });
+      renderFix();
+    }
+    imp.plan = plan;
+    updateFixRows();
+    renderPreview();
+  } catch (e) {
+    handleError(e);
+  }
+}
+
+let checkTimer = null;
+function scheduleCheck() {
+  clearTimeout(checkTimer);
+  checkTimer = setTimeout(function () { runCheck(false); }, 300);
+}
+
+function renderFix() {
+  const imp = S.imp;
+  const host = $('#imp-fix');
+  if (!host) return;
+  const rows = importRecords(false).filter(function (r) { return imp.problems[r._row]; });
+  if (!rows.length) {
+    host.innerHTML = '<h3>2. Rows with problems</h3><div class="notice ok">No missing required fields, bad dates or unknown statuses.</div>';
+    return;
+  }
+  const statuses = S.data.statuses;
+  host.innerHTML = '<h3>2. Rows with problems (' + rows.length + ')</h3>' +
+    '<p class="muted small">Fill in or correct the cells (dates like 03/04/2026), or tick <b>Skip</b> to leave a row out.</p>' +
+    '<div class="row" style="margin-bottom:8px"><button type="button" class="btn" id="skip-all">Skip all</button>' +
+    '<button type="button" class="btn" id="skip-none">Skip none</button></div>' +
+    '<div class="table-wrap"><table><thead><tr><th>Row</th><th>Skip</th><th>Problems</th>' +
+    S.data.fields.map(function (f) {
+      return '<th>' + esc(S.data.labels[f]) + (S.data.requiredFields.indexOf(f) >= 0 ? ' *' : '') + '</th>';
+    }).join('') + '</tr></thead><tbody>' +
+    rows.map(function (r) {
+      const current = Object.assign({}, r, imp.edits[r._row] || {});
+      return '<tr data-row="' + r._row + '"><td>' + r._row + '</td>' +
+        '<td><input type="checkbox" data-skip="' + r._row + '"' + (imp.skip[r._row] ? ' checked' : '') + '></td>' +
+        '<td class="problems">' + esc(imp.problems[r._row].join('; ')) + '</td>' +
+        S.data.fields.map(function (f) {
+          const v = current[f] || '';
+          if (f === 'status') {
+            const extra = v && statuses.indexOf(v) < 0 && statuses.map(function (s) { return s.toLowerCase(); }).indexOf(v.toLowerCase()) < 0 ? v : null;
+            return '<td><select data-row="' + r._row + '" data-field="status"><option value="">(blank = Applied)</option>' +
+              statusOptions(statuses.filter(function (s) { return s.toLowerCase() === v.toLowerCase(); })[0] || v, extra) + '</select></td>';
+          }
+          return '<td><input type="text" data-row="' + r._row + '" data-field="' + f + '" value="' + esc(v) + '"></td>';
+        }).join('') + '</tr>';
+    }).join('') + '</tbody></table></div>';
+
+  host.querySelector('tbody').addEventListener('change', function (e) {
+    const el = e.target;
+    if (el.dataset.skip) {
+      imp.skip[el.dataset.skip] = el.checked;
+    } else if (el.dataset.field) {
+      imp.edits[el.dataset.row] = imp.edits[el.dataset.row] || {};
+      imp.edits[el.dataset.row][el.dataset.field] = el.value;
+    }
+    updateFixRows();
+    scheduleCheck();
+  });
+  function setAll(value) {
+    rows.forEach(function (r) { imp.skip[r._row] = value; });
+    host.querySelectorAll('input[data-skip]').forEach(function (c) { c.checked = value; });
+    updateFixRows();
+    scheduleCheck();
+  }
+  $('#skip-all').addEventListener('click', function () { setAll(true); });
+  $('#skip-none').addEventListener('click', function () { setAll(false); });
+}
+
+function updateFixRows() {
+  const imp = S.imp;
+  const stillBad = {};
+  if (imp.plan) imp.plan.invalid.forEach(function (i) { stillBad[i.raw._row] = i.problems; });
+  document.querySelectorAll('#imp-fix tbody tr').forEach(function (tr) {
+    const row = tr.dataset.row;
+    const cell = tr.querySelector('.problems');
+    if (imp.skip[row]) {
+      tr.className = 'skipped';
+      cell.textContent = 'skipped';
+    } else if (stillBad[row]) {
+      tr.className = 'bad';
+      cell.textContent = stillBad[row].join('; ');
+    } else {
+      tr.className = 'fixed';
+      cell.textContent = '✓ fixed';
+    }
+  });
+}
+
+function renderPreview() {
+  const imp = S.imp;
+  const host = $('#imp-preview');
+  if (!host || !imp.plan) return;
+  const plan = imp.plan;
+  const skipped = Object.keys(imp.skip).filter(function (k) { return imp.skip[k]; }).length;
+  const shown = plan.ready.slice(0, 50);
+  const cols = ['requisition_id', 'company', 'role', 'date_applied', 'status', 'follow_up', 'location'];
+  host.innerHTML = '<h3>3. Preview</h3>' +
+    '<div class="stat-grid">' +
+    '<div class="stat"><b>' + plan.ready.length + '</b><span>Ready</span></div>' +
+    '<div class="stat"><b>' + plan.duplicates.length + '</b><span>Duplicates (skipped)</span></div>' +
+    '<div class="stat"><b>' + skipped + '</b><span>Rows skipped</span></div>' +
+    '<div class="stat"><b>' + plan.invalid.length + '</b><span>Still need fixing</span></div></div>' +
+    (plan.invalid.length ? '<div class="notice error">Fix or skip these rows first:<ul>' + plan.invalid.map(function (i) {
+      return '<li>Row ' + i.raw._row + ': ' + esc(i.problems.join('; ')) + '</li>';
+    }).join('') + '</ul></div>' : '') +
+    (shown.length ? '<div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Row</th>' +
+      cols.map(function (c) { return '<th>' + esc(S.data.labels[c]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      shown.map(function (r) {
+        return '<tr><td>' + r._row + '</td>' + cols.map(function (c) {
+          const v = c === 'date_applied' || c === 'follow_up' ? usDate(r[c]) : r[c];
+          return '<td>' + esc(v) + '</td>';
+        }).join('') + '</tr>';
+      }).join('') + '</tbody></table></div>' +
+      (plan.ready.length > shown.length ? '<p class="muted small">…and ' + (plan.ready.length - shown.length) + ' more.</p>' : '')
+      : '') +
+    (plan.duplicates.length ? '<h3>Duplicates that will be skipped</h3><div class="table-wrap"><table><thead><tr>' +
+      '<th>Row</th><th>Company</th><th>Requisition ID</th><th>Reason</th></tr></thead><tbody>' +
+      plan.duplicates.map(function (d) {
+        return '<tr><td>' + d.record._row + '</td><td>' + esc(d.record.company) + '</td><td>' +
+          esc(d.record.requisition_id) + '</td><td>' + esc(d.reason) + '</td></tr>';
+      }).join('') + '</tbody></table></div>' : '') +
+    '<div class="row end" style="margin-top:14px"><button type="button" class="btn btn-primary" id="do-import"' +
+    (plan.invalid.length || !plan.ready.length ? ' disabled' : '') + '>Import ' + plan.ready.length + ' job(s)</button></div>';
+  $('#do-import').addEventListener('click', doImport);
+}
+
+async function doImport() {
+  const imp = S.imp;
+  $('#do-import').disabled = true;
+  try {
+    const result = await call('importJobs', imp.plan.ready);
+    const skippedRows = Object.keys(imp.skip).filter(function (k) { return imp.skip[k]; });
+    // Duplicates found in the preview never reach importJobs; result.skipped only
+    // has ones that appeared since (e.g. added on another device meanwhile).
+    const duplicates = imp.plan.duplicates.map(function (d) {
+      return { _row: d.record._row, company: d.record.company, requisition_id: d.record.requisition_id, reason: d.reason };
+    }).concat(result.skipped);
+    S.importReport = {
+      summary: 'Imported ' + result.inserted + ' job(s). Skipped ' + duplicates.length +
+        ' duplicate(s) and ' + skippedRows.length + ' row(s) with problems.',
+      details: duplicates.map(function (d) {
+        return 'Row ' + d._row + ': ' + d.company + ' ' + d.requisition_id + ' — ' + d.reason;
+      }).concat(skippedRows.map(function (r) { return 'Row ' + r + ': skipped'; })),
+    };
+    S.imp = null;
+    renderImport();
+    await reload();
+  } catch (e) {
+    $('#do-import').disabled = false;
+    handleError(e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Start
+// ---------------------------------------------------------------------------
+
+document.querySelectorAll('.tabbar button').forEach(function (b) {
+  b.addEventListener('click', function () { go(b.dataset.view); });
+});
+$('#refresh').addEventListener('click', function () { reload(); });
+$('#view').addEventListener('click', function (e) {
+  const chip = e.target.closest('.chip');
+  if (chip) return onChip(chip.dataset.status);
+  const action = e.target.closest('.card [data-act]');
+  if (action) onCardAction(action);
+});
+$('#view').addEventListener('submit', function (e) {
+  if (!e.target.classList.contains('edit-form')) return;
+  e.preventDefault();
+  onEditSubmit(e.target);
+});
+render(true);
+reload();
+})();
+</script>

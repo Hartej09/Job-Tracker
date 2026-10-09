@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <?!= include('Stylesheet'); ?>
+</head>
+<body>
+  <header class="topbar">
+    <h1>Job Tracker</h1>
+    <div class="topbar-actions">
+      <a id="sheet-link" class="btn btn-ghost" target="_blank" rel="noopener" hidden>Sheet</a>
+      <button id="refresh" class="btn btn-ghost" type="button" aria-label="Refresh">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/></svg>
+      </button>
+    </div>
+  </header>
+  <div id="progress" class="progress" hidden></div>
+
+  <main id="view">
+    <p class="muted center">Loading…</p>
+  </main>
+
+  <nav class="tabbar" aria-label="Sections">
+    <button type="button" data-view="jobs">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+      <span>Jobs</span>
+    </button>
+    <button type="button" data-view="add">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      <span>Add</span>
+    </button>
+    <button type="button" data-view="followups">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10 21h4"/></svg>
+      <span>Follow-ups</span>
+      <b id="followup-badge" class="badge-count" hidden></b>
+    </button>
+    <button type="button" data-view="stats">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>
+      <span>Stats</span>
+    </button>
+    <button type="button" data-view="import">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
+      <span>Import</span>
+    </button>
+  </nav>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <?!= include('JavaScript'); ?>
+</body>
+</html>

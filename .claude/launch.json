@@ -2,11 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "job-tracker-scratch",
-      "runtimeExecutable": ".venv\\Scripts\\python.exe",
-      "runtimeArgs": ["-m", "streamlit", "run", "app.py", "--server.headless", "true", "--server.port", "8501", "--browser.gatherUsageStats", "false"],
-      "env": { "JOBTRACKER_DB_PATH": "scratch.db" },
-      "port": 8501
+      "name": "apps-script-preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["dev/serve.js"],
+      "port": 8765
     }
   ]
 }
