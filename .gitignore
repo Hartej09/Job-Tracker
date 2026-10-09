@@ -1,0 +1,10 @@
+jobs.db*
+*.db
+*.db-wal
+*.db-shm
+credentials.json
+token.json
+.env
+__pycache__/
+.pytest_cache/
+.venv/

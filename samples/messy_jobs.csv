@@ -1,0 +1,11 @@
+Req #,Hiring Co.,Position,Applied On,Stage,City,Pay,Posting Link,Recruiter,Next Follow-Up,Comments
+JR-20417,Northwind Traders,Data Analyst,09/02/2026,Applied,Seattle WA,$85k-$100k,https://example.com/jobs/20417,Dana Lee,09/16/2026,Applied via referral
+,Contoso,Business Analyst,9/5/2026,interviewing,Remote,,https://example.com/jobs/contoso-ba,,10/01/2026,No req ID on posting
+R-88812,Fabrikam,Product Manager,"Sept 8, 2026",Applied,Austin TX,$120k,,,,
+,Tailspin Toys,QA Engineer,2026-09-10,Rejected,,,,,,Req ID missing
+REQ-5531,Litware,Software Engineer,13/09/2026,Applied,Boston MA,,,,,Date looks European
+jr-20417,NORTHWIND TRADERS,Data Analyst,09/02/2026,Applied,Seattle WA,,,,,Duplicate row
+A-7781,Adventure Works,Ops Analyst,9/15/26,Phone screen,Denver CO,,,Sam Ortiz,,Status not standard
+W-1009,Woodgrove Bank,Risk Analyst,09/18/2026,Interviewing,Charlotte NC,$95k,,,10/05/2026,
+,Proseware,UX Researcher,,Applied,,,,,,Missing req ID and date
+C-3300,Coho Winery,Data Engineer,Sep 22 2026,Offer,Napa CA,$130k,,,,Offer received!
