@@ -62,7 +62,8 @@ code — handy for trying changes before publishing them.)
 - **Follow-ups** — jobs whose follow-up date is today or earlier and that aren't
   Rejected, Withdrawn or an Offer. The badge shows how many.
 - **Stats** — jobs by status and applications per week (weeks start Monday).
-- **Import** — upload a CSV. Columns are matched automatically (ignoring case, spaces
+- **Import** — upload a CSV (the tab has a *How to import* guide, the list of required
+  and optional columns, and a blank template to download). Columns are matched automatically (ignoring case, spaces
   and punctuation, plus common names like "Req #", "Position", "Employer"); fix any
   match with the dropdowns. Rows with a missing requisition ID/company/role, a date it
   can't read or an unknown status are listed so you can fix them or tick **Skip**.

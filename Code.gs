@@ -694,26 +694,34 @@ function parseCsv_(text) {
   return rows;
 }
 
-/** Turn validated-or-not raw import record into a clean one. */
+/**
+ * Turn a raw import record into a clean one. Returns {clean, problems, fields}:
+ * clean is null when there are problems; fields lists the fields with problems.
+ */
 function validateRecord_(raw) {
   const problems = [];
+  const fields = [];
   const clean = { _row: raw._row };
+  function problem(field, text) {
+    problems.push(text);
+    if (fields.indexOf(field) < 0) fields.push(field);
+  }
   JOB_FIELDS.forEach(function (f) {
     const value = isBlank_(raw[f]) ? '' : String(raw[f]).trim();
-    if (REQUIRED_FIELDS.indexOf(f) >= 0 && !value) problems.push('missing ' + FIELD_LABELS[f]);
+    if (REQUIRED_FIELDS.indexOf(f) >= 0 && !value) problem(f, 'missing ' + FIELD_LABELS[f]);
     if (DATE_FIELDS.indexOf(f) >= 0) {
       const parsed = parseDate_(value);
-      if (!parsed.ok) problems.push('unrecognized ' + FIELD_LABELS[f] + ' "' + value + '"');
+      if (!parsed.ok) problem(f, 'unrecognized ' + FIELD_LABELS[f] + ' "' + value + '"');
       clean[f] = parsed.iso;
     } else if (f === 'status') {
       const status = parseStatus_(value);
-      if (status === null) problems.push('unknown status "' + value + '"');
+      if (status === null) problem(f, 'unknown status "' + value + '"');
       clean[f] = status;
     } else {
       clean[f] = value || null;
     }
   });
-  return { clean: problems.length ? null : clean, problems: problems };
+  return { clean: problems.length ? null : clean, problems: problems, fields: fields };
 }
 
 /** Split raw records into ready / invalid / duplicates (first occurrence wins). */
@@ -723,7 +731,7 @@ function buildPlan_(rawRecords, existingKeys) {
   rawRecords.forEach(function (raw) {
     const result = validateRecord_(raw);
     if (!result.clean) {
-      plan.invalid.push({ raw: raw, problems: result.problems });
+      plan.invalid.push({ raw: raw, problems: result.problems, fields: result.fields });
       return;
     }
     const clean = result.clean;

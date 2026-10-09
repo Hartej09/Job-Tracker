@@ -377,6 +377,10 @@ test('checkImport finds missing fields, bad dates, unknown statuses and duplicat
   assert.deepEqual(invalid[3], ['missing Requisition ID']);
   assert.deepEqual(invalid[4], ['unrecognized Date applied "not a date"']);
   assert.deepEqual(invalid[6], ['missing Role', 'unknown status "Phone screen"']);
+  const fields = Object.fromEntries(plan.invalid.map((i) => [i.raw._row, i.fields]));
+  assert.deepEqual(fields[3], ['requisition_id']);
+  assert.deepEqual(fields[4], ['date_applied']);
+  assert.deepEqual(fields[6], ['role', 'status']);
 
   const dups = Object.fromEntries(plan.duplicates.map((d) => [d.record._row, d.reason]));
   assert.deepEqual(dups, { 5: 'duplicate of row 2 in this file', 8: 'already in tracker' });

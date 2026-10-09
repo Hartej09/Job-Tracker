@@ -311,10 +311,10 @@ function visibleJobs() {
 function renderJobs() {
   $('#view').innerHTML =
     '<h2>Jobs</h2>' +
-    '<div class="chips" id="chips"></div>' +
+    '<div class="filters"><div class="chips" id="chips"></div>' +
     '<div class="toolbar">' +
     '<input type="search" id="search" placeholder="Search company, role, req ID, notes" value="' + esc(S.search) + '">' +
-    '<button type="button" class="btn" id="export">Export</button></div>' +
+    '<button type="button" class="btn" id="export">Export</button></div></div>' +
     '<p class="muted small" id="job-count"></p><div id="job-list"></div>';
   renderChips();
   renderJobList();
@@ -361,17 +361,21 @@ async function exportView() {
   const ids = visibleJobs().map(function (j) { return j.id; });
   if (!ids.length) return toast('Nothing to export.');
   try {
-    const csv = await call('exportCsv', ids);
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'jobs_' + S.data.today + '.csv';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    downloadCsv('jobs_' + S.data.today + '.csv', await call('exportCsv', ids));
   } catch (e) {
     handleError(e);
   }
+}
+
+function downloadCsv(filename, csv) {
+  // The byte-order mark makes Excel read the file as UTF-8.
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 
 // ---------------------------------------------------------------------------
@@ -481,6 +485,48 @@ async function submitAdd(data, force) {
 // CSV import page
 // ---------------------------------------------------------------------------
 
+// Other header names that are matched automatically (see FIELD_ALIASES in Code.gs).
+const FIELD_HINTS = {
+  requisition_id: 'Req #, Req ID, Job ID, Requisition',
+  company: 'Employer, Company name, Organization',
+  role: 'Title, Job title, Position',
+  date_applied: 'Applied, Applied on, Application date',
+  status: 'Stage, Application status',
+  location: 'City, Job location',
+  salary_range: 'Salary, Pay, Compensation',
+  job_url: 'URL, Link, Posting link',
+  contact: 'Recruiter, Hiring manager',
+  email_domain: 'Domain, e.g. acme.com',
+  follow_up: 'Follow-up date, Next follow-up',
+  notes: 'Note, Comments',
+};
+
+function importHelp(open) {
+  function fieldItem(f) {
+    return '<li><b>' + esc(S.data.labels[f]) + '</b><span class="muted"> — or ' + esc(FIELD_HINTS[f]) + '</span></li>';
+  }
+  const optional = S.data.fields.filter(function (f) { return S.data.requiredFields.indexOf(f) < 0; });
+  return '<details class="card help"' + (open ? ' open' : '') + '><summary>How to import</summary>' +
+    '<ol class="steps">' +
+    '<li><b>Save your list as a CSV file.</b><br><span class="muted">' +
+    'Excel: File → Save As → <i>CSV UTF-8 (Comma delimited)</i>. ' +
+    'Google Sheets: File → Download → <i>Comma-separated values (.csv)</i>. ' +
+    'Numbers: File → Export To → <i>CSV</i>. Excel (.xlsx) files must be saved as CSV first.</span></li>' +
+    '<li><b>One header row, then one job per row.</b><br><span class="muted">' +
+    'Header names don\'t have to match exactly — after you choose the file you can confirm or change each match.</span></li>' +
+    '<li><b>Tap <i>Choose CSV file</i> above.</b><br><span class="muted">Check the column matches, fix or skip any flagged rows, then tap <b>Import</b>.</span></li>' +
+    '</ol>' +
+    '<h4>Required columns</h4><ul class="fields">' + S.data.requiredFields.map(fieldItem).join('') + '</ul>' +
+    '<h4>Optional columns</h4><ul class="fields">' + optional.map(fieldItem).join('') + '</ul>' +
+    '<h4>Accepted values</h4><ul class="fields">' +
+    '<li><b>Status</b><span class="muted"> — ' + esc(S.data.statuses.join(', ')) + ' (any capitalization; blank = Applied)</span></li>' +
+    '<li><b>Dates</b><span class="muted"> — US order: 03/04/2026 is March 4. Also 3/4/26, 2026-03-04, Mar 4 2026, March 4, 2026</span></li>' +
+    '<li><b>Duplicates</b><span class="muted"> — a row with the same company + requisition ID as a job you already have (or an earlier row) is skipped</span></li>' +
+    '</ul>' +
+    '<button type="button" class="btn" id="template" style="margin-top:12px">Download blank template (.csv)</button>' +
+    '</details>';
+}
+
 function renderImport() {
   const imp = S.imp;
   const report = S.importReport;
@@ -488,12 +534,18 @@ function renderImport() {
     (report ? '<div class="notice ok">' + esc(report.summary) +
       (report.details.length ? '<ul>' + report.details.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ul>' : '') +
       '</div>' : '') +
-    '<div class="card"><label for="csv-file">' + (imp ? 'File: <b>' + esc(imp.name) + '</b> (' + imp.rows.length +
-      ' rows) — choose another' : 'Choose a CSV file') + '</label>' +
-    '<input type="file" id="csv-file" accept=".csv,text/csv">' +
-    '<p class="muted small">Dates are read US-style: 03/04/2026 is March 4. A blank status imports as Applied.</p></div>' +
+    '<label class="file-pick" for="csv-file">' +
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M12 17v-6M9 14l3-3 3 3"/></svg>' +
+    '<span><b>' + (imp ? esc(imp.name) : 'Choose CSV file') + '</b>' +
+    '<span class="muted small">' + (imp ? imp.rows.length + ' rows · tap to choose a different file' : 'From Files, iCloud, Drive or Downloads') +
+    '</span></span></label>' +
+    '<input type="file" id="csv-file" class="visually-hidden" accept=".csv,text/csv">' +
+    importHelp(!imp) +
     '<div id="imp-mapping"></div><div id="imp-fix"></div><div id="imp-preview"></div>';
   $('#csv-file').addEventListener('change', onFileChosen);
+  $('#template').addEventListener('click', function () {
+    downloadCsv('job_tracker_template.csv', S.data.fields.map(function (f) { return S.data.labels[f]; }).join(',') + '\r\n');
+  });
   if (imp) {
     renderMapping();
     renderFix();
@@ -512,6 +564,7 @@ function readFileAs(file, encoding) {
 
 async function onFileChosen(e) {
   const file = e.target.files[0];
+  e.target.value = ''; // so choosing the same file again still triggers a change
   if (!file) return;
   try {
     let text = await readFileAs(file, 'utf-8');
@@ -523,7 +576,7 @@ async function onFileChosen(e) {
     S.importReport = null;
     S.imp = {
       name: file.name, headers: parsed.headers, rows: parsed.rows, mapIdx: mapIdx,
-      problems: {}, edits: {}, skip: {}, plan: null, token: 0,
+      problems: {}, edits: {}, skip: {}, plan: null, token: 0, mappingOpen: false,
     };
     renderImport();
     await runCheck(true);
@@ -541,15 +594,20 @@ function renderMapping() {
   };
   const unmapped = S.data.requiredFields.filter(function (f) { return imp.mapIdx[f] < 0; })
     .map(function (f) { return S.data.labels[f]; });
+  const matched = S.data.fields.filter(function (f) { return imp.mapIdx[f] >= 0; }).length;
+  const open = imp.mappingOpen || unmapped.length > 0;
   $('#imp-mapping').innerHTML = '<h3>1. Match columns</h3>' +
-    '<p class="muted small">Suggested matches are pre-selected. Fix any that are wrong.</p>' +
-    '<div class="card map-grid">' + S.data.fields.map(function (f) {
+    (unmapped.length ? '<div class="notice warn"><b>' + esc(unmapped.join(', ')) + '</b> not matched. ' +
+      'Pick the right column below, or fill it in for each row in step 2.</div>' : '') +
+    '<details class="card" id="map-details"' + (open ? ' open' : '') + '>' +
+    '<summary>' + matched + ' of ' + S.data.fields.length + ' fields matched <span class="muted small">— tap to review</span></summary>' +
+    '<p class="muted small">Each field shows the column from your file it will come from. Change any that are wrong.</p>' +
+    '<div class="map-grid">' + S.data.fields.map(function (f) {
       const required = S.data.requiredFields.indexOf(f) >= 0;
       return '<div><label for="map-' + f + '">' + esc(S.data.labels[f]) + (required ? ' <span class="req">*</span>' : '') +
         '</label><select id="map-' + f + '" data-field="' + f + '">' + options(imp.mapIdx[f]) + '</select></div>';
-    }).join('') + '</div>' +
-    (unmapped.length ? '<div class="notice warn">' + esc(unmapped.join(', ')) +
-      ' not matched — every row will need it filled in below.</div>' : '');
+    }).join('') + '</div></details>';
+  $('#map-details').addEventListener('toggle', function (e) { imp.mappingOpen = e.target.open; });
   $('#imp-mapping').querySelectorAll('select').forEach(function (sel) {
     sel.addEventListener('change', function () {
       imp.mapIdx[sel.dataset.field] = Number(sel.value);
@@ -583,10 +641,11 @@ async function runCheck(fresh) {
     if (fresh) {
       imp.problems = {};
       plan.invalid.forEach(function (i) { imp.problems[i.raw._row] = i.problems; });
+      imp.plan = plan;
       renderFix();
     }
     imp.plan = plan;
-    updateFixRows();
+    updateFixCards();
     renderPreview();
   } catch (e) {
     handleError(e);
@@ -599,79 +658,107 @@ function scheduleCheck() {
   checkTimer = setTimeout(function () { runCheck(false); }, 300);
 }
 
+// Fields shown on every problem card; the rest are under "Other fields".
+const FIX_MAIN_FIELDS = ['requisition_id', 'company', 'role', 'date_applied', 'status', 'follow_up'];
+
+function fixInput(row, f, value) {
+  const id = 'fix-' + row + '-' + f;
+  const required = S.data.requiredFields.indexOf(f) >= 0;
+  const isDate = f === 'date_applied' || f === 'follow_up';
+  // Dates and status are short, so they sit two to a row; text fields get a full row.
+  const open = '<div' + (isDate || f === 'status' ? '' : ' class="wide"') + '>';
+  const label = '<label for="' + id + '">' + esc(S.data.labels[f]) + (required ? ' <span class="req">*</span>' : '') + '</label>';
+  const attrs = ' id="' + id + '" data-row="' + row + '" data-field="' + f + '"';
+  if (f === 'status') {
+    const statuses = S.data.statuses;
+    const canonical = statuses.filter(function (s) { return s.toLowerCase() === String(value).toLowerCase(); })[0];
+    const extra = value && !canonical ? value : null;
+    return open + label + '<select' + attrs + '><option value="">(blank = Applied)</option>' +
+      statusOptions(canonical || value, extra) + '</select></div>';
+  }
+  const placeholder = isDate ? ' placeholder="MM/DD/YYYY"' : '';
+  return open + label + '<input type="text"' + attrs + placeholder + ' value="' + esc(value) + '"></div>';
+}
+
 function renderFix() {
   const imp = S.imp;
   const host = $('#imp-fix');
   if (!host) return;
   const rows = importRecords(false).filter(function (r) { return imp.problems[r._row]; });
   if (!rows.length) {
-    host.innerHTML = '<h3>2. Rows with problems</h3><div class="notice ok">No missing required fields, bad dates or unknown statuses.</div>';
+    host.innerHTML = '<h3>2. Rows to fix</h3><div class="notice ok">✓ Every row has the required fields, readable dates and a known status.</div>';
     return;
   }
-  const statuses = S.data.statuses;
-  host.innerHTML = '<h3>2. Rows with problems (' + rows.length + ')</h3>' +
-    '<p class="muted small">Fill in or correct the cells (dates like 03/04/2026), or tick <b>Skip</b> to leave a row out.</p>' +
-    '<div class="row" style="margin-bottom:8px"><button type="button" class="btn" id="skip-all">Skip all</button>' +
+  host.innerHTML = '<h3>2. Rows to fix (' + rows.length + ')</h3>' +
+    '<p class="muted small">Fill in or correct the highlighted boxes, or tick <b>Skip</b> to leave a row out. ' +
+    'Row numbers match your spreadsheet.</p>' +
+    '<div class="row" style="margin-bottom:10px"><button type="button" class="btn" id="skip-all">Skip all</button>' +
     '<button type="button" class="btn" id="skip-none">Skip none</button></div>' +
-    '<div class="table-wrap"><table><thead><tr><th>Row</th><th>Skip</th><th>Problems</th>' +
-    S.data.fields.map(function (f) {
-      return '<th>' + esc(S.data.labels[f]) + (S.data.requiredFields.indexOf(f) >= 0 ? ' *' : '') + '</th>';
-    }).join('') + '</tr></thead><tbody>' +
     rows.map(function (r) {
       const current = Object.assign({}, r, imp.edits[r._row] || {});
-      return '<tr data-row="' + r._row + '"><td>' + r._row + '</td>' +
-        '<td><input type="checkbox" data-skip="' + r._row + '"' + (imp.skip[r._row] ? ' checked' : '') + '></td>' +
-        '<td class="problems">' + esc(imp.problems[r._row].join('; ')) + '</td>' +
-        S.data.fields.map(function (f) {
-          const v = current[f] || '';
-          if (f === 'status') {
-            const extra = v && statuses.indexOf(v) < 0 && statuses.map(function (s) { return s.toLowerCase(); }).indexOf(v.toLowerCase()) < 0 ? v : null;
-            return '<td><select data-row="' + r._row + '" data-field="status"><option value="">(blank = Applied)</option>' +
-              statusOptions(statuses.filter(function (s) { return s.toLowerCase() === v.toLowerCase(); })[0] || v, extra) + '</select></td>';
-          }
-          return '<td><input type="text" data-row="' + r._row + '" data-field="' + f + '" value="' + esc(v) + '"></td>';
-        }).join('') + '</tr>';
-    }).join('') + '</tbody></table></div>';
+      const value = function (f) { return current[f] || ''; };
+      const others = S.data.fields.filter(function (f) { return FIX_MAIN_FIELDS.indexOf(f) < 0; });
+      return '<div class="fix-card" data-row="' + r._row + '">' +
+        '<div class="fix-head"><b>Row ' + r._row + '</b>' +
+        '<label class="skip"><input type="checkbox" data-skip="' + r._row + '"' + (imp.skip[r._row] ? ' checked' : '') + '> Skip</label></div>' +
+        '<p class="problems small"></p>' +
+        '<div class="fix-fields"><div class="grid">' +
+        FIX_MAIN_FIELDS.map(function (f) { return fixInput(r._row, f, value(f)); }).join('') + '</div>' +
+        '<details><summary class="small muted">Other fields</summary><div class="grid">' +
+        others.map(function (f) { return fixInput(r._row, f, value(f)); }).join('') + '</div></details></div>' +
+        '</div>';
+    }).join('');
 
-  host.querySelector('tbody').addEventListener('change', function (e) {
+  host.addEventListener('change', function (e) {
     const el = e.target;
     if (el.dataset.skip) {
       imp.skip[el.dataset.skip] = el.checked;
     } else if (el.dataset.field) {
       imp.edits[el.dataset.row] = imp.edits[el.dataset.row] || {};
       imp.edits[el.dataset.row][el.dataset.field] = el.value;
+    } else {
+      return;
     }
-    updateFixRows();
+    updateFixCards();
     scheduleCheck();
   });
   function setAll(value) {
     rows.forEach(function (r) { imp.skip[r._row] = value; });
     host.querySelectorAll('input[data-skip]').forEach(function (c) { c.checked = value; });
-    updateFixRows();
+    updateFixCards();
     scheduleCheck();
   }
   $('#skip-all').addEventListener('click', function () { setAll(true); });
   $('#skip-none').addEventListener('click', function () { setAll(false); });
 }
 
-function updateFixRows() {
+/** Colour each problem card by its latest check: still bad, fixed or skipped. */
+function updateFixCards() {
   const imp = S.imp;
   const stillBad = {};
-  if (imp.plan) imp.plan.invalid.forEach(function (i) { stillBad[i.raw._row] = i.problems; });
-  document.querySelectorAll('#imp-fix tbody tr').forEach(function (tr) {
-    const row = tr.dataset.row;
-    const cell = tr.querySelector('.problems');
-    if (imp.skip[row]) {
-      tr.className = 'skipped';
-      cell.textContent = 'skipped';
-    } else if (stillBad[row]) {
-      tr.className = 'bad';
-      cell.textContent = stillBad[row].join('; ');
-    } else {
-      tr.className = 'fixed';
-      cell.textContent = '✓ fixed';
-    }
+  if (imp.plan) imp.plan.invalid.forEach(function (i) { stillBad[i.raw._row] = i; });
+  document.querySelectorAll('#imp-fix .fix-card').forEach(function (cardEl) {
+    const row = cardEl.dataset.row;
+    const text = cardEl.querySelector('.problems');
+    const bad = stillBad[row];
+    cardEl.classList.toggle('skipped', !!imp.skip[row]);
+    cardEl.classList.toggle('fixed', !imp.skip[row] && !bad);
+    if (imp.skip[row]) text.textContent = 'Skipped — this row won\'t be imported.';
+    else if (bad) text.textContent = bad.problems.join(' · ');
+    else text.textContent = '✓ Ready to import';
+    cardEl.querySelectorAll('[data-field]').forEach(function (input) {
+      input.classList.toggle('invalid', !!bad && bad.fields.indexOf(input.dataset.field) >= 0);
+    });
   });
+}
+
+function previewItem(r, extra) {
+  const bits = ['#' + esc(r.requisition_id)];
+  if (r.status) bits.push(esc(r.status));
+  if (r.date_applied) bits.push('applied ' + usDate(r.date_applied));
+  bits.push('row ' + r._row);
+  return '<li><div><b>' + esc(r.company) + '</b> — ' + esc(r.role) + '</div>' +
+    '<div class="muted small">' + bits.join(' · ') + (extra ? ' · ' + esc(extra) : '') + '</div></li>';
 }
 
 function renderPreview() {
@@ -681,34 +768,23 @@ function renderPreview() {
   const plan = imp.plan;
   const skipped = Object.keys(imp.skip).filter(function (k) { return imp.skip[k]; }).length;
   const shown = plan.ready.slice(0, 50);
-  const cols = ['requisition_id', 'company', 'role', 'date_applied', 'status', 'follow_up', 'location'];
+  const blocked = plan.invalid.length > 0;
   host.innerHTML = '<h3>3. Preview</h3>' +
-    '<div class="stat-grid">' +
+    '<div class="stat-grid four">' +
     '<div class="stat"><b>' + plan.ready.length + '</b><span>Ready</span></div>' +
-    '<div class="stat"><b>' + plan.duplicates.length + '</b><span>Duplicates (skipped)</span></div>' +
-    '<div class="stat"><b>' + skipped + '</b><span>Rows skipped</span></div>' +
-    '<div class="stat"><b>' + plan.invalid.length + '</b><span>Still need fixing</span></div></div>' +
-    (plan.invalid.length ? '<div class="notice error">Fix or skip these rows first:<ul>' + plan.invalid.map(function (i) {
-      return '<li>Row ' + i.raw._row + ': ' + esc(i.problems.join('; ')) + '</li>';
-    }).join('') + '</ul></div>' : '') +
-    (shown.length ? '<div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Row</th>' +
-      cols.map(function (c) { return '<th>' + esc(S.data.labels[c]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-      shown.map(function (r) {
-        return '<tr><td>' + r._row + '</td>' + cols.map(function (c) {
-          const v = c === 'date_applied' || c === 'follow_up' ? usDate(r[c]) : r[c];
-          return '<td>' + esc(v) + '</td>';
-        }).join('') + '</tr>';
-      }).join('') + '</tbody></table></div>' +
-      (plan.ready.length > shown.length ? '<p class="muted small">…and ' + (plan.ready.length - shown.length) + ' more.</p>' : '')
-      : '') +
-    (plan.duplicates.length ? '<h3>Duplicates that will be skipped</h3><div class="table-wrap"><table><thead><tr>' +
-      '<th>Row</th><th>Company</th><th>Requisition ID</th><th>Reason</th></tr></thead><tbody>' +
-      plan.duplicates.map(function (d) {
-        return '<tr><td>' + d.record._row + '</td><td>' + esc(d.record.company) + '</td><td>' +
-          esc(d.record.requisition_id) + '</td><td>' + esc(d.reason) + '</td></tr>';
-      }).join('') + '</tbody></table></div>' : '') +
-    '<div class="row end" style="margin-top:14px"><button type="button" class="btn btn-primary" id="do-import"' +
-    (plan.invalid.length || !plan.ready.length ? ' disabled' : '') + '>Import ' + plan.ready.length + ' job(s)</button></div>';
+    '<div class="stat"><b>' + plan.invalid.length + '</b><span>Need fixing</span></div>' +
+    '<div class="stat"><b>' + plan.duplicates.length + '</b><span>Duplicates</span></div>' +
+    '<div class="stat"><b>' + skipped + '</b><span>Skipped</span></div></div>' +
+    (blocked ? '<div class="notice error">Fix or skip ' + plan.invalid.length + ' row(s) in step 2 before importing.</div>' : '') +
+    (shown.length ? '<h4>Will be imported</h4><ul class="plist">' + shown.map(function (r) { return previewItem(r); }).join('') +
+      (plan.ready.length > shown.length ? '<li class="muted small">…and ' + (plan.ready.length - shown.length) + ' more</li>' : '') +
+      '</ul>' : '') +
+    (plan.duplicates.length ? '<details class="card" style="margin-top:12px"><summary>' + plan.duplicates.length +
+      ' duplicate(s) will be skipped</summary><ul class="plist flat">' +
+      plan.duplicates.map(function (d) { return previewItem(d.record, d.reason); }).join('') + '</ul></details>' : '') +
+    '<div class="sticky-action"><button type="button" class="btn btn-primary block" id="do-import"' +
+    (blocked || !plan.ready.length ? ' disabled' : '') + '>' +
+    (blocked ? 'Fix ' + plan.invalid.length + ' row(s) to import' : 'Import ' + plan.ready.length + ' job(s)') + '</button></div>';
   $('#do-import').addEventListener('click', doImport);
 }
 
