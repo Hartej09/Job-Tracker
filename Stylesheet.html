@@ -102,19 +102,19 @@
   /* Top bar & progress */
   .topbar {
     position: sticky; top: 0; z-index: 10; height: 52px;
-    display: flex; align-items: center; justify-content: space-between;
+    display: none; align-items: center; justify-content: space-between;
     padding: 0 8px 0 20px; background: var(--surface); border-bottom: 1px solid var(--border);
   }
   .topbar h1 { font-size: 18px; margin: 0; letter-spacing: -.01em; }
   .topbar-actions { display: flex; gap: 4px; align-items: center; }
-  .progress { position: sticky; top: 52px; z-index: 11; height: 3px; overflow: hidden; margin-bottom: -3px; }
+  .progress { position: sticky; top: 0; z-index: 11; height: 3px; overflow: hidden; margin-bottom: -3px; }
   .progress::after {
     content: ""; display: block; height: 100%; width: 40%; background: var(--accent);
     animation: slide 1s ease-in-out infinite;
   }
   @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 
-  main { max-width: 760px; margin: 0 auto; padding: 18px 16px; }
+  main { max-width: 760px; margin: 0 auto; padding: 20px 16px; }
   h2 { font-size: 30px; line-height: 1.15; letter-spacing: -.02em; margin: 6px 0 4px; }
   h3 { font-size: 17px; margin: 22px 0 8px; }
   .muted { color: var(--muted); }
@@ -123,7 +123,7 @@
   .lede { margin: 0 0 14px; }
 
   /* Navigation: bottom tab bar on phones, sidebar on wide screens. */
-  .brand, .side-foot, .tabbar .desk-only { display: none; }
+  .brand, .side-foot, .tabbar .desk-only, .nav-count { display: none; }
   .tabbar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
     display: grid; grid-template-columns: repeat(5, 1fr); align-items: end;
@@ -220,7 +220,7 @@
   .toolbar input { flex: 1; }
   /* Filters stay under the top bar while the job list scrolls. */
   .filters {
-    position: sticky; top: 52px; z-index: 5; background: var(--bg);
+    position: sticky; top: 0; z-index: 5; background: var(--bg);
     margin: 0 -16px; padding: 8px 16px 10px; border-bottom: 1px solid transparent;
   }
   #job-count { margin: 8px 0; }
@@ -240,12 +240,45 @@
   @media (min-width: 620px) { .card .actions .btn { flex: 0 0 auto; } }
   .panel { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 4px; }
   .overdue { color: var(--danger); font-weight: 600; }
+  article.card[data-id]:not(.is-editing) { cursor: pointer; }
+  article.card[data-id]:has(.sr-action:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sr-action { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; padding: 0; }
+  .card.is-editing .sr-action { display: none; }
+  .sheet-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .row-link {
+    flex: 1 1 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 48px; padding: 0 14px;
+    border: 0; border-radius: 12px; background: var(--bg); color: var(--text); font: inherit; font-size: 14.5px; font-weight: 600;
+    text-decoration: none; cursor: pointer; white-space: nowrap;
+  }
+  .row-link:hover { color: var(--text); background: var(--side); }
+  .row-link svg { width: 18px; height: 18px; color: var(--muted); }
+  .sheet-history { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--bg); }
+  .is-editing .edit-form details > summary { display: none; }
   .overdue small { font-weight: 500; font-size: 12px; }
-  .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .page-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 4px 8px; }
+  .page-title { flex: 1; min-width: 0; }
+  .page-actions { display: flex; align-items: center; flex: 0 0 auto; margin: -2px -6px 0 0; }
+  .menu-wrap { position: relative; }
+  .page-actions .icon-btn { border: 0; background: none; color: var(--text); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+  .page-actions .icon-btn:hover { background: color-mix(in srgb, var(--border) 60%, transparent); }
+  .menu {
+    position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; min-width: 220px; padding: 6px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(15, 30, 61, .18);
+  }
+  .menu button, .menu a {
+    display: flex; align-items: center; gap: 10px; width: 100%; min-height: 46px; padding: 0 12px; border: 0; border-radius: 9px;
+    background: none; color: var(--text); font: inherit; font-size: 15px; text-align: left; text-decoration: none; cursor: pointer;
+  }
+  .menu button:hover, .menu a:hover { background: var(--bg); color: var(--text); }
+  .menu svg { width: 18px; height: 18px; color: var(--muted); }
+  .searchbox { position: relative; flex: 1 1 100%; order: 3; margin-top: 10px; }
+  .searchbox svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; color: var(--muted); pointer-events: none; }
+  .searchbox input { padding-left: 42px; min-height: 46px; }
+  .wide-only { display: none; }
+  .jobs-main { min-width: 0; }
+  .jobs-main .banner { margin: 0 0 12px; }
   .page-head h2 { margin-bottom: 2px; }
-  .page-head > div:first-child { flex: 1; min-width: 0; }
-  .page-head .row { padding-top: 4px; flex: 0 0 auto; flex-wrap: nowrap; }
-  .page-head .btn { min-height: 40px; padding: 4px 12px; font-size: 14px; }
   .card.has-suggestion { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
   .suggest-pill {
     display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
@@ -465,23 +498,36 @@
   table.jobs .co { font-weight: 600; }
   table.jobs .ro { color: var(--muted); font-size: 13px; margin-top: 2px; }
   table.jobs .sug { display: block; margin-top: 6px; font-size: 12.5px; font-weight: 600; text-decoration: none; }
-  .detail { position: sticky; top: 76px; margin: 0; padding: 20px; max-height: calc(100vh - 92px); overflow-y: auto; }
+  .detail { position: sticky; top: 16px; margin: 0; padding: 20px; max-height: calc(100vh - 32px); overflow-y: auto; }
   .detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
   .detail-head h3 { margin: 8px 0 0; font-size: 22px; letter-spacing: -.015em; line-height: 1.2; }
   .detail-head .meta { margin-top: 2px; font-size: 14.5px; color: var(--text2); }
   .detail .edit-form { border-top: 0; margin-top: 6px; padding-top: 0; }
   .detail .edit-form .btn-primary { flex: 0 0 auto; min-width: 96px; }
   .detail-history { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
-  .detail-history h4 { margin: 0 0 4px; font-size: 13px; color: var(--text2); }
+  .detail-history h4 { margin: 0 0 12px; font-size: 13px; color: var(--text2); }
   .jobs-layout { display: block; }
-  .has-detail .col-opt { display: none; }
+  .detail .edit-form details > summary { display: none; }
+  .detail .seg { min-height: 40px; }
+  .detail .quick { min-height: 34px; font-size: 12.5px; flex: 0 0 auto; padding: 0 12px; }
+  .detail .quicks { gap: 6px; }
+  .detail .btn-danger { border-color: transparent; background: none; }
+  input.late-input { border-color: color-mix(in srgb, var(--danger) 45%, var(--border2)); }
+  .detail-section { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .detail-section h4 { margin: 0 0 10px; font-size: 13px; color: var(--text2); }
+  .kv { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 8px 12px; margin: 0; font-size: 13.5px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; }
+  .btn-small { min-height: 32px; padding: 0 10px; font-size: 12.5px; border-radius: 8px; margin-top: 12px; }
+  .timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; font-size: 13.5px; }
+  .timeline li { display: flex; gap: 12px; }
+  .timeline .dot { width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; flex: 0 0 auto; }
+  .timeline .muted { font-size: 13px; }
+  @media (max-width: 1279px) { .has-detail .col-opt { display: none; } }
   table.jobs td, table.jobs th { padding-left: 12px; padding-right: 12px; }
 
   @media (min-width: 900px) {
     body { padding-left: var(--sidebar); padding-bottom: 0; }
-    .topbar { padding-left: 32px; }
-    .topbar h1 { display: none; }
-    .topbar { justify-content: flex-end; }
     main { max-width: 1180px; padding: 12px 32px 48px; }
     .filters { margin: 0; padding-left: 0; padding-right: 0; }
     .tabbar {
@@ -509,6 +555,26 @@
     .tabbar button[data-view="add"] span { position: static; width: auto; height: auto; clip: auto; overflow: visible; }
     .tabbar button[data-view="add"][aria-current="page"] { background: var(--accent); box-shadow: none; }
     .tabbar .desk-only { display: flex; }
+    .tabbar .nav-link { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 0 10px; border-radius: 10px; font-size: 14.5px; font-weight: 500; color: var(--text2); text-decoration: none; }
+    .tabbar .nav-link:hover { background: color-mix(in srgb, var(--border) 70%, transparent); color: var(--text); }
+    .tabbar .nav-link svg { width: 18px; height: 18px; }
+    .tabbar .nav-link .ext { margin-left: auto; width: 14px; height: 14px; color: var(--muted); }
+    .nav-sep { height: 1px; background: var(--border2); margin: 10px 8px; }
+    .nav-count { display: inline; margin-left: auto; font-size: 12.5px; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .brand .brand-refresh, .tabbar .brand-refresh { margin-left: auto; width: 32px; min-height: 32px; height: 32px; padding: 0; justify-content: center; border-radius: 8px; color: var(--muted); }
+    .brand-refresh svg { width: 17px; height: 17px; }
+    .wide-only { display: inline; }
+    .btn.wide-only { display: inline-flex; }
+    .narrow-only { display: none !important; }
+    .page-head { align-items: flex-end; gap: 16px; }
+    .page-title { flex: 1 1 260px; }
+    .searchbox { order: 2; flex: 0 0 320px; margin: 0; }
+    .searchbox input { min-height: 40px; border-radius: 10px; font-size: 14.5px; }
+    .searchbox svg { width: 16px; height: 16px; }
+    .page-actions { order: 3; margin: 0; }
+    .page-actions .btn { min-height: 40px; font-size: 14px; border-radius: 10px; }
+    .jobs-main .banner { margin-bottom: 14px; }
+    .banner .go { text-decoration: underline; }
     .badge-count { position: static; margin-left: auto; min-width: 22px; height: 22px; border-radius: 11px; font-size: 12px; }
     .side-foot {
       display: flex; flex-direction: column; gap: 8px; position: fixed; left: 14px; bottom: 18px; width: calc(var(--sidebar) - 28px); z-index: 12;

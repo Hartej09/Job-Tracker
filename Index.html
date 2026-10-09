@@ -21,13 +21,17 @@
   </main>
 
   <nav class="tabbar" aria-label="Sections">
-    <div class="brand" aria-hidden="true">
-      <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="6"/><path d="M7 12.5l3.2 3L17 8.5"/></svg>
+    <div class="brand">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="20" height="20" rx="6"/><path d="M7 12.5l3.2 3L17 8.5"/></svg>
       <span>Job Tracker</span>
+      <button type="button" id="side-refresh" class="brand-refresh" aria-label="Refresh">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/></svg>
+      </button>
     </div>
     <button type="button" data-view="jobs">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
       <span>Jobs</span>
+      <b id="jobs-count" class="nav-count" hidden></b>
     </button>
     <button type="button" data-view="followups">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10 21h4"/></svg>
@@ -47,10 +51,16 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>
       <span>Stats</span>
     </button>
+    <div class="nav-sep desk-only" aria-hidden="true"></div>
     <button type="button" data-view="import" class="desk-only">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
       <span>Import CSV</span>
     </button>
+    <a id="side-sheet" class="nav-link desk-only" target="_blank" rel="noopener" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v14H3zM3 10h18M9 10v9"/></svg>
+      <span>Open Google Sheet</span>
+      <svg class="ext" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg>
+    </a>
   </nav>
   <div id="side-foot" class="side-foot" hidden></div>
 
