@@ -15,15 +15,51 @@ copy .env.example .env   # optional: change JOBTRACKER_DB_PATH
 
 ## Run
 
+Double-click **`run_desktop.cmd`**, or from PowerShell in this folder:
+
 ```powershell
-.\.venv\Scripts\activate
-streamlit run app.py
+.\.venv\Scripts\streamlit.exe run app.py
 ```
 
-The database (`jobs.db` by default) is created and migrated automatically on start.
+It opens at http://localhost:8501 and only this PC can connect
+(see `.streamlit/config.toml`). The database (`jobs.db` by default) is created and
+migrated automatically on start. Close the window (or Ctrl+C) to stop.
+
+## Use it on your phone (same Wi-Fi)
+
+The app and data stay on your PC; the phone opens it in its browser over your Wi-Fi.
+The PC must be on, awake, and on the same Wi-Fi (or turn on Windows **Mobile hotspot**
+and connect the phone to it).
+
+One-time setup:
+
+1. **Mark your home Wi-Fi as Private:** Settings → Network & internet → Wi-Fi →
+   your network → Network profile type → **Private**.
+2. **Allow the app through the firewall, home Wi-Fi only.** In PowerShell
+   *run as administrator*:
+
+   ```powershell
+   New-NetFirewallRule -DisplayName "Job Tracker (Wi-Fi)" -Direction Inbound -Protocol TCP -LocalPort 8501 -Profile Private -RemoteAddress LocalSubnet -Action Allow
+   ```
+
+   This allows only port 8501, only on Private networks, only from devices on the
+   same local network.
+3. **Recommended: set a password.** Copy `.env.example` to `.env` and set
+   `JOBTRACKER_PASSWORD=...`. Without it, anyone on your Wi-Fi can open the app.
+
+Each time: double-click **`run_phone.cmd`**, then open the **Network URL** it prints
+(e.g. `http://192.168.0.111:8501`) on your phone. Phones open the **Phone view** page
+automatically. To get an app icon: Safari → Share → *Add to Home Screen*, or
+Chrome → ⋮ → *Add to Home screen*. If your router gives the PC a new address later,
+use the new Network URL.
+
+To turn phone access off, just use `run_desktop.cmd`. To remove the firewall rule:
+`Remove-NetFirewallRule -DisplayName "Job Tracker (Wi-Fi)"` (as administrator).
 
 ## Features (Phase 1)
 
+- **Phone view**: one card per job, follow-ups due at the top, status filter and
+  search, and an *Update* form per job (status, follow-up date, notes).
 - **Jobs**: editable table with a status dropdown, filters (status + text search over
   company/role/requisition ID/notes), delete with confirmation, per-job status history,
   and CSV export of the current filtered view.
@@ -71,4 +107,6 @@ Each test uses its own temporary database.
 | `db.py` | Schema, migrations and all queries |
 | `csv_import.py` | CSV header mapping, date/status parsing, row validation |
 | `samples/messy_jobs.csv` | Example CSV with non-matching headers and problem rows |
+| `run_desktop.cmd` / `run_phone.cmd` | Start the app for this PC only / for phones on the same Wi-Fi |
+| `.streamlit/config.toml` | Localhost-only by default; usage statistics off |
 | `tests/` | pytest suite |

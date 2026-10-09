@@ -6,6 +6,8 @@ No SQL in this file; everything goes through db.py.
 from __future__ import annotations
 
 import hashlib
+import hmac
+import os
 from datetime import date, datetime
 
 import pandas as pd
@@ -506,16 +508,99 @@ def page_import(conn) -> None:
         st.rerun()
 
 
+ACTIVE_STATUSES = ["Applied", "Interviewing", "Offer"]
+
+
+def page_phone(conn) -> None:
+    """Compact card layout for small screens."""
+    st.header("My jobs")
+    due = db.follow_ups_due(conn)
+    if due:
+        st.subheader(f"⏰ Follow-ups due ({len(due)})")
+        for job in due:
+            job_card(conn, job, "due")
+        st.divider()
+
+    statuses = st.pills(
+        "Status", db.STATUSES, selection_mode="multi", default=ACTIVE_STATUSES, key="phone_status"
+    )
+    search = st.text_input("Search", key="phone_search", placeholder="Company, role, req ID, notes")
+    jobs = db.list_jobs(conn, statuses, search)
+    st.caption(f"{len(jobs)} job(s)" + ("" if statuses else " — all statuses"))
+    for job in jobs:
+        job_card(conn, job, "list")
+
+
+def job_card(conn, job: dict, prefix: str) -> None:
+    with st.container(border=True):
+        st.markdown(f"**{job['company']}** — {job['role']}")
+        details = [f"#{job['requisition_id']}", job["status"]]
+        if job["date_applied"]:
+            details.append(f"applied {us_date(job['date_applied'])}")
+        if job["follow_up"]:
+            details.append(f"follow up {us_date(job['follow_up'])}")
+        if job["location"]:
+            details.append(job["location"])
+        st.caption(" · ".join(details))
+        if job["notes"]:
+            st.caption(f"📝 {job['notes']}")
+        url = job["job_url"] or ""
+        if url.startswith(("http://", "https://")):
+            st.link_button("Open posting", url)
+
+        with st.expander("Update"):
+            # updated_at in the key resets the form once the job is saved.
+            with st.form(f"{prefix}_{job['id']}_{job['updated_at']}"):
+                status = st.selectbox("Status", db.STATUSES, index=db.STATUSES.index(job["status"]))
+                follow_up = st.date_input("Follow-up", value=to_date(job["follow_up"]), format=DATE_FORMAT)
+                notes = st.text_area("Notes", value=job["notes"] or "")
+                if st.form_submit_button("Save", type="primary", width="stretch"):
+                    changes = {"status": status, "follow_up": follow_up, "notes": notes}
+                    try:
+                        db.update_job(conn, job["id"], changes, expected_updated_at=job["updated_at"])
+                        flash("success", f"Saved {job['company']} — {job['role']}.")
+                    except db.ValidationError as exc:
+                        st.error(str(exc))
+                        return
+                    except db.ConflictError:
+                        flash("warning", f"{job['company']} changed elsewhere — showing the latest. Try again.")
+                    st.rerun()
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 
+def password_ok() -> bool:
+    """Optional shared password (JOBTRACKER_PASSWORD in .env) for phone use."""
+    password = os.getenv("JOBTRACKER_PASSWORD")
+    if not password or st.session_state.get("authenticated"):
+        return True
+    st.title("💼 Job Tracker")
+    with st.form("login"):
+        entered = st.text_input("Password", type="password")
+        if st.form_submit_button("Unlock", type="primary"):
+            if hmac.compare_digest(entered.encode(), password.encode()):
+                st.session_state["authenticated"] = True
+                st.rerun()
+            st.error("Wrong password.")
+    return False
+
+
+def is_phone() -> bool:
+    user_agent = st.context.headers.get("User-Agent", "")
+    return any(word in user_agent for word in ("iPhone", "Android", "Mobile"))
+
+
 def main() -> None:
+    if not password_ok():
+        return
     conn = db.connect()
     try:
         due = len(db.follow_ups_due(conn))
         pages = {
+            "Phone view": page_phone,
             "Jobs": page_jobs,
             "Add job": page_add,
             "Follow-ups": page_follow_ups,
@@ -527,6 +612,7 @@ def main() -> None:
             choice = st.radio(
                 "Go to",
                 list(pages),
+                index=0 if is_phone() else 1,  # only used on first load
                 format_func=lambda p: f"{p} ({due})" if p == "Follow-ups" and due else p,
                 label_visibility="collapsed",
                 key="nav",
