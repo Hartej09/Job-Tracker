@@ -61,10 +61,15 @@
       <span>Open Google Sheet</span>
       <svg class="ext" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg>
     </a>
+    <div id="side-foot" class="side-foot" hidden></div>
   </nav>
-  <div id="side-foot" class="side-foot" hidden></div>
 
-  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="toast" role="status" aria-live="polite">
+    <span id="toast-text"></span>
+    <button type="button" id="toast-close" class="toast-close" aria-label="Dismiss message" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
 
   <?!= include('JavaScript'); ?>
 </body>

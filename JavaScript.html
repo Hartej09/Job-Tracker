@@ -15,6 +15,8 @@ const S = {
   search: '',
   open: {},         // job id -> 'edit' | 'confirm-delete' | 'history'
   sel: null,        // job id shown in the details panel (wide screens)
+  stale: false,      // data changed while a form had unsaved edits; redraw when it closes
+  afterDiscard: null, // what to do once the person confirms discarding edits
   selDismissed: false, // the panel was closed on purpose; don't auto-open it again
   pendingAdd: null, // form data waiting for "Add anyway"
   imp: null,        // CSV import in progress
@@ -60,6 +62,7 @@ const ICON = {
   arrow: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
   check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   chev: '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
   swap: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v13M3 13l4 4 4-4M17 20V7M13 11l4-4 4 4"/></svg>',
   dots: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
   refresh: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/></svg>',
@@ -104,22 +107,57 @@ function errorText(e) {
 }
 
 let toastTimer = null;
+/** Errors stay until dismissed; confirmations fade on their own. */
 function toast(message, isError) {
   const t = $('#toast');
-  t.textContent = message;
+  $('#toast-text').textContent = message;
+  $('#toast-close').hidden = !isError;
+  t.setAttribute('role', isError ? 'alert' : 'status');
   t.className = 'show' + (isError ? ' error' : '');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(function () { t.className = ''; }, isError ? 6000 : 2500);
+  if (!isError) toastTimer = setTimeout(function () { t.className = ''; }, 3500);
 }
 
 function handleError(e) {
   const message = errorText(e);
   if (message.indexOf('CONFLICT: ') === 0) {
     toast(message.slice(10) + ' — showing the latest version.', true);
+    const open = dirtyForm();
+    if (open) open.dataset.dirty = '';
     reload();
   } else {
     toast(message, true);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Unsaved edits: never throw them away without asking
+// ---------------------------------------------------------------------------
+
+function dirtyForm() { return document.querySelector('.edit-form[data-dirty="1"]'); }
+
+/** True (and a confirm bar is shown) when leaving would discard unsaved edits; `proceed` runs if they agree. */
+function guardDirty(proceed) {
+  const form = dirtyForm();
+  if (!form) return false;
+  S.afterDiscard = proceed;
+  if (!form.querySelector('.discard-bar')) {
+    const bar = document.createElement('div');
+    bar.className = 'notice warn discard-bar';
+    bar.setAttribute('role', 'alert');
+    bar.innerHTML = '<b>Discard your changes?</b><div class="row">' +
+      '<button type="button" class="btn" data-act="discard-keep">Keep editing</button>' +
+      '<button type="button" class="btn btn-danger solid" data-act="discard-yes">Discard</button></div>';
+    const head = form.querySelector('.sheet-head');
+    form.insertBefore(bar, head ? head.nextSibling : form.firstChild);
+  }
+  form.querySelector('.discard-bar').scrollIntoView({ block: 'nearest' });
+  return true;
+}
+
+function closeSheet(id) {
+  delete S.open[id];
+  rerenderCard(id);
 }
 
 function loadSavedFilter() {
@@ -156,7 +194,8 @@ async function reload() {
   setBadge('#followup-badge', S.data.followUpIds.length);
   setBadge('#review-badge', S.data.review.suggestions.length);
   renderSideFoot();
-  render(false);
+  if (dirtyForm()) S.stale = true;
+  else { S.stale = false; render(false); }
   if (!S.autoSynced && S.data.review.syncDue) {
     S.autoSynced = true;
     runSync(false);
@@ -204,6 +243,7 @@ async function runSync(manual) {
 }
 
 function go(view) {
+  if (guardDirty(function () { go(view); })) return;
   if (view !== S.view) { S.sel = null; S.selDismissed = false; }
   S.view = view;
   render(true);
@@ -211,11 +251,17 @@ function go(view) {
 }
 
 /** Re-render the current page. Forms (Add, Import) are only rebuilt when navigating to them. */
-function render(navigated) {
+function markNav() {
+  // On phones "Add job" is a page inside Jobs, so the Jobs tab stays highlighted.
+  const current = S.view === 'add' && !WIDE.matches ? 'jobs' : S.view;
   document.querySelectorAll('.tabbar button[data-view]').forEach(function (b) {
-    if (b.dataset.view === S.view) b.setAttribute('aria-current', 'page');
+    if (b.dataset.view === current) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
   });
+}
+
+function render(navigated) {
+  markNav();
   if (!S.data) return;
   if (S.view === 'jobs') renderJobs();
   else if (S.view === 'followups') renderFollowUps();
@@ -253,7 +299,7 @@ function card(job) {
     '" data-id="' + job.id + '">' +
     '<div class="card-head"><div class="card-title">' + esc(job.company) +
     ' <span>— ' + esc(job.role) + '</span></div>' +
-    statusPill(job.status) + '</div>' +
+    statusPill(job.status) + ICON.chevR.replace('<svg', '<svg class="card-chev"') + '</div>' +
     (pending.length ? '<button type="button" class="suggest-pill" data-act="review"><span>' + (pending[0].kind === 'email'
         ? 'Email says <b>' + esc(pending[0].suggested_status) + '</b>'
         : 'Quiet ' + pending[0].inactive_days + ' days — mark <b>' + esc(pending[0].suggested_status) + '</b>?') +
@@ -313,7 +359,7 @@ function followUpField(job, id) {
 
 function editForm(job, confirmDelete, inPanel) {
   const p = { prefix: 'e' + job.id };
-  return '<form class="panel edit-form">' +
+  return '<form class="panel edit-form" data-updated="' + esc(job.updated_at) + '">' +
     (inPanel ? '' : '<div class="sheet-head"><div><b>' + esc(job.company) + '</b><div class="meta">' + esc(job.role) +
       ' · <span class="mono">' + esc(job.requisition_id) + '</span></div></div>' +
       '<button type="button" class="btn btn-ghost icon-btn" data-act="edit" aria-label="Close">' + ICON.close + '</button></div>') +
@@ -375,6 +421,7 @@ function rerenderCard(id) {
 }
 
 function selectJob(id) {
+  if (id !== S.sel && guardDirty(function () { selectJob(id); })) return;
   S.sel = id;
   renderJobList();
 }
@@ -422,7 +469,22 @@ async function onCardAction(button) {
     }
     return;
   }
+  if (act === 'discard-keep') {
+    button.closest('.discard-bar').remove();
+    S.afterDiscard = null;
+    return;
+  }
+  if (act === 'discard-yes') {
+    const form = button.closest('.edit-form');
+    form.dataset.dirty = '';
+    const next = S.afterDiscard;
+    S.afterDiscard = null;
+    if (next) next();
+    if (S.stale) reload();
+    return;
+  }
   if (act === 'close-detail') {
+    if (guardDirty(function () { delete S.open[id]; S.sel = null; S.selDismissed = true; renderJobList(); })) return;
     delete S.open[id];
     S.sel = null;
     S.selDismissed = true;
@@ -430,6 +492,7 @@ async function onCardAction(button) {
     return;
   }
   if (act === 'edit') {
+    if ((mode === 'edit' || mode === 'confirm-delete') && guardDirty(function () { closeSheet(id); })) return;
     S.open[id] = mode === 'edit' || mode === 'confirm-delete' ? undefined : 'edit';
   } else if (act === 'history') {
     S.open[id] = mode === 'history' ? undefined : 'history';
@@ -462,7 +525,7 @@ async function onEditSubmit(form) {
   const button = form.querySelector('button[type="submit"]');
   button.disabled = true;
   try {
-    await call('updateJob', id, changes, job.updated_at);
+    await call('updateJob', id, changes, form.dataset.updated || job.updated_at);
     delete S.open[id];
     toast('Saved ' + (changes.company || job.company));
     await reload();
@@ -499,7 +562,8 @@ function renderJobs() {
   if (pending) summary.push(plural(pending, 'suggestion') + ' to review');
   $('#view').innerHTML =
     '<div class="page-head"><div class="page-title"><h2>Jobs</h2><p class="muted small lede">' + esc(summary.join(' · ')) + '</p></div>' +
-    '<div class="page-actions"><button type="button" class="btn wide-only" data-m="export">' + ICON.down + 'Export view</button>' +
+    '<div class="page-actions"><button type="button" class="icon-btn add-btn narrow-only" data-go="add" aria-label="Add job">' + ICON.plus + '</button>' +
+    '<button type="button" class="btn wide-only" data-m="export">' + ICON.down + 'Export view</button>' +
     '<div class="menu-wrap narrow-only"><button type="button" class="icon-btn" data-menu aria-label="Import or export" aria-haspopup="true" aria-expanded="false">' + ICON.swap + '</button>' +
     '<div class="menu" role="menu" hidden><button type="button" role="menuitem" data-m="import">' + ICON.up + 'Import CSV</button>' +
     '<button type="button" role="menuitem" data-m="export">' + ICON.down + 'Export view</button></div></div>' +
@@ -507,9 +571,14 @@ function renderJobs() {
     '<div class="menu" role="menu" hidden><button type="button" role="menuitem" data-m="refresh">' + ICON.refresh + 'Refresh</button>' +
     '<a role="menuitem" href="' + esc(S.data.sheetUrl) + '" target="_blank" rel="noopener">' + ICON.sheet + 'Open Google Sheet</a></div></div></div>' +
     '<div class="searchbox"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>' +
-    '<input type="search" id="search" aria-label="Search jobs" placeholder="Search company, role, req ID, notes" value="' + esc(S.search) + '"></div></div>' +
+    '<input type="search" id="search" aria-label="Search jobs" aria-keyshortcuts="/" placeholder="Search company, role, req ID, notes" value="' + esc(S.search) + '"></div></div>' +
     '<div class="filters"><div class="chips" id="chips"></div></div>' +
     '<div id="jobs-layout" class="jobs-layout"><div class="jobs-main">' +
+    (pending ? '<button type="button" class="banner suggest" data-go="review">' + ICON.mail +
+      '<span class="grow"><b>' + plural(pending, 'suggestion') + ' to review</b><span class="names"> — ' +
+      esc(S.data.review.suggestions.map(function (x) { return x.job.company; })
+        .filter(function (name, i, all) { return all.indexOf(name) === i; }).slice(0, 3).join(', ')) + '</span></span>' +
+      '<span class="go"><span class="wide-only">Review</span><span class="narrow-only">Review ›</span></span></button>' : '') +
     (due.length ? '<button type="button" class="banner" id="due-banner">' + ICON.clock +
       '<span class="grow"><b>' + plural(due.length, 'follow-up') + (due.length === 1 ? ' is ' : ' are ') + word + '</b>' +
       '<span class="names"> — ' + esc(due.slice(0, 3).map(function (j) { return j.company; }).join(', ')) +
@@ -570,7 +639,7 @@ function jobsTable(jobs, followUps) {
       }
       const hint = s ? '<a class="sug" href="#" data-act="review">' + (s.kind === 'email'
         ? 'Email says ' + esc(s.suggested_status) : 'Quiet ' + s.inactive_days + ' days — ' + esc(s.suggested_status) + '?') + ' →</a>' : '';
-      return '<tr data-id="' + j.id + '" tabindex="0"' + (S.sel === j.id ? ' class="sel" aria-selected="true"' : '') + '>' +
+      return '<tr data-id="' + j.id + '" tabindex="0"' + (S.sel === j.id ? ' class="sel" aria-current="true"' : '') + '>' +
         '<td><div class="co">' + esc(j.company) + '</div><div class="ro">' + esc(j.role) + '</div></td>' +
         '<td class="mono">' + esc(j.requisition_id) + '</td>' +
         '<td>' + statusPill(j.status) + hint + '</td>' +
@@ -587,9 +656,16 @@ function renderJobList(keepDetail) {
   const followUps = S.view === 'followups';
   const jobs = followUps ? dueJobs() : visibleJobs();
   const wide = WIDE.matches;
-  if (!followUps) $('#job-count').textContent = 'Showing ' + jobs.length + ' of ' + plural(S.data.jobs.length, 'job');
+  if (!followUps) {
+    $('#job-count').textContent = jobs.length === S.data.jobs.length ? '' : 'Showing ' + jobs.length + ' of ' + plural(S.data.jobs.length, 'job');
+  }
   $('#job-list').innerHTML = !jobs.length
-    ? '<div class="empty">' + (S.data.jobs.length ? 'No jobs match.' : 'No jobs yet. Use <b>Add job</b> or <b>Import</b> to get started.') + '</div>'
+    ? (S.data.jobs.length
+      ? '<div class="empty"><b>No jobs match</b><br>Try a different search or status.<div class="row">' +
+        '<button type="button" class="btn" data-clear-filters>Clear filters</button></div></div>'
+      : '<div class="empty"><b>No jobs yet</b><br>Add your first application, or import a spreadsheet.<div class="row">' +
+        '<button type="button" class="btn btn-primary" data-go="add">Add job</button>' +
+        '<button type="button" class="btn" data-go="import">Import CSV</button></div></div>')
     : wide ? jobsTable(jobs, followUps) : jobs.map(card).join('');
   // On Follow-ups, a job drops out of the list (and its panel closes) once its date moves past today.
   if (wide && !S.sel && !S.selDismissed && jobs.length) S.sel = jobs[0].id;
@@ -1217,6 +1293,13 @@ document.querySelectorAll('.tabbar button[data-view]').forEach(function (b) {
 });
 $('#refresh').addEventListener('click', function () { reload(); });
 $('#side-refresh').addEventListener('click', function () { reload(); });
+function markDirty(el) {
+  const form = el.closest && el.closest('.edit-form');
+  if (form) form.dataset.dirty = '1';
+}
+$('#view').addEventListener('input', function (e) { markDirty(e.target); });
+$('#view').addEventListener('change', function (e) { markDirty(e.target); });
+
 function closeMenus(except) {
   document.querySelectorAll('.menu').forEach(function (m) {
     if (m === except) return;
@@ -1250,8 +1333,15 @@ $('#view').addEventListener('click', function (e) {
   if (review) { e.preventDefault(); return go('review'); }
   const jump = t.closest('[data-go]');
   if (jump) return go(jump.dataset.go);
+  if (t.closest('[data-clear-filters]')) {
+    S.search = '';
+    S.filter = new Set(S.data.statuses);
+    saveFilter();
+    return renderJobs();
+  }
   const seg = t.closest('.seg');
   if (seg) {
+    markDirty(seg);
     const group = seg.closest('fieldset');
     group.querySelectorAll('.seg').forEach(function (b) { b.setAttribute('aria-pressed', String(b === seg)); });
     group.querySelector('input[name="status"]').value = seg.dataset.status;
@@ -1266,6 +1356,7 @@ $('#view').addEventListener('click', function (e) {
   }
   const quick = t.closest('.quick');
   if (quick) {
+    markDirty(quick);
     const input = quick.closest('form').querySelector('input[name="follow_up"]');
     input.value = quick.dataset.days === 'clear' ? '' : addDays(S.data.today, Number(quick.dataset.days));
     return;
@@ -1279,8 +1370,9 @@ $('#view').addEventListener('click', function (e) {
   // Tapping the dimmed area behind the phone edit sheet closes it.
   const sheet = t.closest('.card.is-editing');
   if (sheet && t === sheet && !WIDE.matches) {
-    delete S.open[Number(sheet.dataset.id)];
-    return rerenderCard(Number(sheet.dataset.id));
+    const sheetId = Number(sheet.dataset.id);
+    if (guardDirty(function () { closeSheet(sheetId); })) return;
+    return closeSheet(sheetId);
   }
   const tapped = t.closest('article.card[data-id]');
   if (tapped && !WIDE.matches && !tapped.classList.contains('is-editing') && !t.closest('button, a, input, select, textarea, label, form')) {
@@ -1307,8 +1399,53 @@ $('#view').addEventListener('submit', function (e) {
 });
 // Cards on phones, table on wide screens: redraw when the window crosses the breakpoint.
 if (WIDE.addEventListener) {
-  WIDE.addEventListener('change', function () { if (S.data && (S.view === 'jobs' || S.view === 'followups') && $('#job-list')) renderJobList(); });
+  WIDE.addEventListener('change', function () { markNav(); if (S.data && (S.view === 'jobs' || S.view === 'followups') && $('#job-list')) renderJobList(); });
 }
+$('#toast-close').addEventListener('click', function () { $('#toast').className = ''; });
+
+// Swipe the phone edit sheet down by its handle to dismiss it.
+(function () {
+  let startY = null;
+  let form = null;
+  document.addEventListener('touchstart', function (e) {
+    const head = e.target.closest && e.target.closest('.is-editing .sheet-head');
+    if (!head) return;
+    form = head.closest('.edit-form');
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+  document.addEventListener('touchmove', function (e) {
+    if (startY === null) return;
+    const dy = Math.max(0, e.touches[0].clientY - startY);
+    form.style.transform = 'translateY(' + dy + 'px)';
+  }, { passive: true });
+  document.addEventListener('touchend', function (e) {
+    if (startY === null) return;
+    const dy = e.changedTouches[0].clientY - startY;
+    const sheet = form;
+    startY = null;
+    form = null;
+    sheet.style.transform = '';
+    if (dy > 90) {
+      const id = Number(sheet.closest('.card').dataset.id);
+      if (!guardDirty(function () { closeSheet(id); })) closeSheet(id);
+    }
+  }, { passive: true });
+})();
+
+// Two shortcuts: "/" jumps to search, "n" starts a new job (wide screens).
+document.addEventListener('keydown', function (e) {
+  if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || !S.data) return;
+  if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+  if (e.key === '/') {
+    e.preventDefault();
+    if (S.view !== 'jobs') go('jobs');
+    const box = $('#search');
+    if (box) box.focus();
+  } else if (e.key === 'n' && WIDE.matches) {
+    e.preventDefault();
+    go('add');
+  }
+});
 render(true);
 reload();
 })();
