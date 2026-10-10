@@ -548,8 +548,8 @@
       padding: 22px 14px 0;
     }
     .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 4px; font-size: 17px; font-weight: 700; letter-spacing: -.01em; order: -3; }
-    .brand svg { width: 28px; height: 28px; fill: var(--text); stroke: none; }
-    .brand svg path { stroke: var(--bg); stroke-width: 2.2; fill: none; }
+    .brand > svg { width: 28px; height: 28px; fill: var(--text); stroke: none; }
+    .brand > svg path { stroke: var(--bg); stroke-width: 2.2; fill: none; }
     .tabbar button {
       flex-direction: row; justify-content: flex-start; gap: 10px; min-height: 42px; padding: 0 10px;
       border-radius: 10px; font-size: 14.5px; font-weight: 500; color: var(--text2); text-align: left;
@@ -562,7 +562,9 @@
       background: var(--accent); color: var(--accent-text); font-weight: 600;
     }
     .tabbar button[data-view="add"]:hover { background: var(--accent); filter: brightness(1.1); color: var(--accent-text); }
-    .tabbar button[data-view="add"] svg { width: 18px; height: 18px; padding: 0; margin: 0; background: none; box-shadow: none !important; stroke-width: 2; }
+    .tabbar button[data-view="add"] { padding: 0 10px; }
+    .tabbar button[data-view="add"] svg { width: 18px; height: 18px; padding: 0; margin: 0; transform: none; filter: none; background: none; box-shadow: none !important; stroke-width: 2; }
+    .tabbar button[data-view="add"][aria-current="page"] svg { filter: none; }
     .tabbar button[data-view="add"] span { position: static; width: auto; height: auto; clip: auto; overflow: visible; }
     .tabbar button[data-view="add"][aria-current="page"] { background: var(--accent); box-shadow: none; }
     .tabbar .desk-only { display: flex; }
