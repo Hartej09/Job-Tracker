@@ -15,6 +15,9 @@
     --control: #8093b2;
     --accent-text: #ffffff;
     --tint: #ebf2fe;
+    --tint-btn-bg: #dfe9fc;
+    --tint-btn-fg: #1d4ed8;
+    --gray-btn-bg: #e6ebf3;
     --link-hover: #1d4ed8;
     --danger: #b42318;
     --warn-bg: #fbf0dc;
@@ -57,6 +60,9 @@
       --accent-fill: #3a6ee6;
       --control: #62779a;
       --tint: #1b2b4c;
+      --tint-btn-bg: #243a66;
+      --tint-btn-fg: #a9c3ff;
+      --gray-btn-bg: #26324a;
       --link-hover: #8fb0ff;
       --danger: #f4877d;
       --warn-bg: #3a3014;
@@ -304,6 +310,22 @@
     background: var(--tint); color: var(--text); font-size: 0.8438rem; font-weight: 500;
   }
   .suggest-pill b { color: var(--accent); font-weight: 600; }
+  .sp-why { display: block; margin-top: 2px; font-weight: 400; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+  /* A proposal is a soft grouped fill with no border, like a secondary row in an inset list.
+     Buttons follow the tinted / gray / plain ladder, so only real commits are solid blue. */
+  .suggest-pill, table.jobs .sug { background: var(--bg); border: 0; border-radius: 10px; }
+  table.jobs .sug { padding: 8px 10px; }
+  .suggest-pill.in-detail { margin: 14px 0 4px; }
+  .sp-ico { width: 14px; height: 14px; margin: -2px 6px 0 0; vertical-align: middle; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .btn-tint { background: var(--tint-btn-bg); border-color: transparent; color: var(--tint-btn-fg); font-weight: 600; }
+  .btn-tint:hover { background: var(--tint-btn-bg); color: var(--tint-btn-fg); filter: brightness(.97); }
+  .btn-gray { background: var(--gray-btn-bg); border-color: transparent; color: var(--text); font-weight: 600; }
+  .btn-gray:hover { background: var(--gray-btn-bg); color: var(--text); filter: brightness(.97); }
+  .btn-plain { background: transparent; border-color: transparent; color: var(--text2); box-shadow: none; }
+  .btn-plain:hover { background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); }
+  .accept-as { margin-top: 10px; }
+  .accept-as summary { display: inline-flex; align-items: center; min-height: 36px; font-size: 0.8125rem; font-weight: 600; color: var(--accent); cursor: pointer; }
+  .accept-as-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding-bottom: 4px; }
   .sp-btns { display: flex; gap: 8px; }
   .sp-btns .btn { flex: 1; margin-top: 0; min-height: 44px; font-size: 0.875rem; }
   .danger-zone .btn { margin-top: 0; }
@@ -325,7 +347,6 @@
   .banner.suggest svg, .banner.suggest .go { color: var(--accent); }
   .discard-bar { margin: 12px 0 0; }
   .discard-bar .row { margin-top: 8px; }
-  .banner .names { display: none; }
   .banner .go { font-weight: 600; white-space: nowrap; }
 
   /* Segmented status buttons and quick follow-up buttons */
@@ -379,10 +400,10 @@
   .suggestion .email-subject { font-weight: 600; overflow-wrap: anywhere; }
   .suggestion .email .notes, .suggestion .email .meta { overflow-wrap: anywhere; }
   .suggestion .email .meta { margin-top: 4px; }
-  .suggestion-foot { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; margin-top: 18px; }
+  .suggestion-foot { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; margin-top: 18px; }
   .suggestion-foot .btn { min-height: 48px; padding: 0 14px; white-space: nowrap; }
   @media (min-width: 620px) { .suggestion-foot .btn { padding: 0 20px; } }
-  .suggestion-foot .btn-primary { grid-column: 1 / -1; }
+  .suggestion-foot [data-sact="accept"] { grid-column: 1 / -1; }
   .suggestion-foot select { min-height: 48px; padding: 0 8px; }
   .quiet-stat { display: flex; align-items: center; gap: 16px; }
   .quiet-stat strong { font-size: 2.125rem; letter-spacing: -.03em; line-height: 1; }
@@ -571,11 +592,6 @@
   .timeline li { display: flex; gap: 12px; }
   .timeline .dot { width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; flex: 0 0 auto; }
   .timeline .muted { font-size: 0.8125rem; }
-  @media (max-width: 1279px) { .has-detail .col-opt { display: none; } }
-  @media (max-width: 1179px) {
-    .has-detail .col-opt2 { display: none; }
-    .has-detail table.jobs td, .has-detail table.jobs th { padding-left: 10px; padding-right: 10px; }
-  }
   table.jobs td, table.jobs th { padding-left: 12px; padding-right: 12px; }
 
   @media (min-width: 900px) {
@@ -642,15 +658,21 @@
     }
     .tabbar .side-foot .btn:hover { background: var(--bg); }
     h2 { margin-top: 10px; }
-    .jobs-layout.has-detail { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 24px; align-items: start; }
-    @media (max-width: 1179px) { .jobs-layout.has-detail { grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; } }
-    .banner .names { display: inline; }
+    /* The details panel is a drawer over the right edge, so the table keeps every column. */
+    .jobs-layout .detail {
+      position: fixed; top: 16px; right: 16px; bottom: 16px; z-index: 30; width: min(400px, calc(100vw - 32px));
+      max-height: none; box-shadow: 0 12px 40px rgba(15, 30, 61, .22); border-color: var(--border2);
+    }
+    table.jobs td.mono .clip { display: block; white-space: nowrap; overflow: visible; -webkit-line-clamp: unset; line-clamp: unset; }
+    .attention { display: flex; }
+    .attention .banner { flex: 1 1 0; min-width: 0; }
+    .attention .banner + .banner { border-top: 0; border-left: 1px solid var(--border2); }
     .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .stats-cards .wide-card { grid-column: 1 / -1; }
     .suggestion { padding: 22px 24px; }
     .suggestion-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 20px; }
-    .suggestion-foot .btn-primary { grid-column: auto; }
+    .suggestion-foot [data-sact="accept"] { grid-column: auto; }
     .suggestion-foot select { width: 190px; margin-left: auto; }
     .add-form { max-width: 720px; }
   }

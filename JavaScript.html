@@ -78,6 +78,11 @@ function statusPill(status, big) {
   return '<span class="status ' + esc(status) + (big ? ' big' : '') + '">' + esc(status) + '</span>';
 }
 
+/** The status a suggestion proposes, as an ordinary status pill; the soft box around it is what marks it as a proposal. */
+function ghostPill(status, big) {
+  return statusPill(status, big);
+}
+
 function daysBetween(fromIso, toIso) {
   return Math.round((Date.parse(toIso + 'T00:00:00Z') - Date.parse(fromIso + 'T00:00:00Z')) / 86400000);
 }
@@ -239,7 +244,7 @@ async function runSync(manual) {
     const result = await call('syncNow');
     if (manual && result.error) toast('Sync failed: ' + result.error, true);
     else if (manual && result.skipped === 'already-running') toast('A sync is already running.');
-    else if (result.newSuggestions) toast(plural(result.newSuggestions, 'new suggestion') + ' to review');
+    else if (manual && result.newSuggestions) toast(plural(result.newSuggestions, 'new suggestion') + ' to review');
     else if (manual && result.rateLimited) toast('Gmail asked to slow down — the rest is checked on the next sync.');
     else if (manual && result.more) toast('Checked some emails — the rest continues on the next sync.');
     else if (manual) toast('Up to date');
@@ -252,7 +257,11 @@ async function runSync(manual) {
 
 function go(view) {
   if (guardDirty(function () { go(view); })) return;
-  if (view !== S.view) { S.sel = null; S.selDismissed = false; }
+  if (view !== S.view) {
+    S.sel = null;
+    S.selDismissed = false;
+    if (toastAction) { toastAction = null; clearTimeout(toastTimer); $('#toast').className = ''; }
+  }
   S.view = view;
   render(true);
   window.scrollTo(0, 0);
@@ -290,16 +299,33 @@ function isOverdue(job) {
 /** One line saying what changed and where it came from, e.g. "Email says Offer · Oct 9". */
 function suggestionText(s) {
   if (s.kind === 'email') {
-    return 'Email says <b>' + esc(s.suggested_status) + '</b>' + (s.email_date ? ' · ' + esc(shortDate(String(s.email_date).slice(0, 10))) : '');
+    return ICON.mail.replace('<svg', '<svg class="sp-ico"') + 'Email says ' + ghostPill(s.suggested_status) + (s.email_date ? ' · ' + esc(shortDate(String(s.email_date).slice(0, 10))) : '');
   }
-  return 'Quiet ' + s.inactive_days + ' days — mark <b>' + esc(s.suggested_status) + '</b>?';
+  return ICON.clock.replace('<svg', '<svg class="sp-ico"') + 'Quiet ' + s.inactive_days + ' days — mark ' + ghostPill(s.suggested_status) + '?';
 }
 
+/** The email behind a suggestion, so it can be judged before it is accepted. */
+function suggestionWhy(s) {
+  if (s.kind !== 'email' || !s.subject) return '';
+  return '<span class="sp-why" title="' + esc((s.sender || '') + ' — ' + s.subject) + '">“' + esc(s.subject) + '”</span>';
+}
+
+/** Outcomes that close a job get a quieter Accept than good news. */
+const CLOSING_STATUSES = ['Rejected', 'Ghosted', 'Withdrawn'];
+
 function suggestionButtons(s) {
-  return '<span class="sp-btns"><button type="button" class="btn btn-small btn-primary" data-qs="accept" data-sid="' + s.id +
+  const tone = CLOSING_STATUSES.indexOf(s.suggested_status) >= 0 ? ' btn-gray' : ' btn-tint';
+  return '<span class="sp-btns"><button type="button" class="btn btn-small' + tone + '" data-qs="accept" data-sid="' + s.id +
     '" aria-label="Accept ' + esc(s.suggested_status) + ' for ' + esc(s.job.company) + '">Accept</button>' +
-    '<button type="button" class="btn btn-small" data-qs="dismiss" data-sid="' + s.id +
+    '<button type="button" class="btn btn-small btn-plain" data-qs="dismiss" data-sid="' + s.id +
     '" aria-label="Dismiss suggestion for ' + esc(s.job.company) + '">Dismiss</button></span>';
+}
+
+/** A job's pending suggestion with its Accept / Dismiss, shown at the top of the drawer and the phone sheet. */
+function jobSuggestionBlock(job) {
+  const s = S.data.review.suggestions.filter(function (x) { return x.job.id === job.id; })[0];
+  if (!s) return '';
+  return '<div class="suggest-pill in-detail"><span class="sp-text">' + suggestionText(s) + suggestionWhy(s) + '</span>' + suggestionButtons(s) + '</div>';
 }
 
 function card(job) {
@@ -323,7 +349,7 @@ function card(job) {
     '<div class="card-head"><div class="card-title">' + esc(job.company) +
     ' <span>— ' + esc(job.role) + '</span></div>' +
     statusPill(job.status) + ICON.chevR.replace('<svg', '<svg class="card-chev"') + '</div>' +
-    (pending.length ? '<div class="suggest-pill"><span class="sp-text">' + suggestionText(pending[0]) +
+    (pending.length ? '<div class="suggest-pill"><span class="sp-text">' + suggestionText(pending[0]) + suggestionWhy(pending[0]) +
       (pending.length > 1 ? ' <button type="button" class="linklike" data-act="review">+' + (pending.length - 1) + ' more</button>' : '') + '</span>' +
       suggestionButtons(pending[0]) + '</div>' : '') +
     '<div class="meta">' + bits.join(' · ') + '</div>' +
@@ -384,7 +410,8 @@ function editForm(job, confirmDelete, inPanel) {
   return '<form class="panel edit-form" data-updated="' + esc(job.updated_at) + '">' +
     (inPanel ? '' : '<div class="sheet-head"><div><b>' + esc(job.company) + '</b><div class="meta">' + esc(job.role) +
       ' · <span class="mono">' + esc(job.requisition_id) + '</span></div></div>' +
-      '<button type="button" class="btn btn-ghost icon-btn" data-act="edit" aria-label="Close">' + ICON.close + '</button></div>') +
+      '<button type="button" class="btn btn-ghost icon-btn" data-act="edit" aria-label="Close">' + ICON.close + '</button></div>' +
+      jobSuggestionBlock(job)) +
     statusSeg(job.status) +
     followUpField(job, 'e' + job.id + '-follow_up') +
     field('notes', job.notes, p) +
@@ -417,6 +444,7 @@ function detailPanel(job) {
     '<div class="detail-head"><div>' + statusPill(job.status, true) + '<h3>' + esc(job.company) + '</h3>' +
     '<div class="meta">' + esc(job.role) + ' · <span class="mono">' + esc(job.requisition_id) + '</span></div></div>' +
     '<button type="button" class="btn btn-ghost icon-btn" data-act="close-detail" aria-label="Close details">' + ICON.close + '</button></div>' +
+    jobSuggestionBlock(job) +
     editForm(job, S.open[job.id] === 'confirm-delete', true) +
     '<div class="detail-section"><h4>Details</h4><dl class="kv">' +
     '<dt>Applied</dt><dd>' + (job.date_applied ? esc(shortDate(job.date_applied)) : '<span class="faint">—</span>') + '</dd>' +
@@ -580,11 +608,10 @@ function renderJobs() {
   const pending = S.data.review.suggestions.length;
   const late = due.filter(function (j) { return j.follow_up < S.data.today; }).length;
   const word = late === due.length ? 'overdue' : 'due';
-  const summary = [plural(S.data.jobs.length, 'job')];
-  if (due.length) summary.push(plural(due.length, 'follow-up') + ' ' + word);
-  if (pending) summary.push(plural(pending, 'suggestion') + ' to review');
+  const rv = S.data.review;
+  const synced = rv.gmailAvailable ? (rv.lastSyncAt ? 'Synced ' + timeAgo(rv.lastSyncAt) : 'Not synced yet') : '';
   $('#view').innerHTML =
-    '<div class="page-head"><div class="page-title"><h2>Jobs</h2><p class="muted small lede">' + esc(summary.join(' · ')) + '</p></div>' +
+    '<div class="page-head"><div class="page-title"><h2>Jobs</h2><p class="muted small lede">' + esc(plural(S.data.jobs.length, 'job')) + (synced ? '<span class="narrow-only"> · ' + esc(synced) + '</span>' : '') + '</p></div>' +
     '<div class="page-actions"><button type="button" class="icon-btn add-btn narrow-only" data-go="add" aria-label="Add job">' + ICON.plus + '</button>' +
     '<button type="button" class="btn wide-only" data-m="export">' + ICON.down + 'Export view</button>' +
     '<div class="menu-wrap narrow-only"><button type="button" class="icon-btn" data-menu aria-label="Import or export" aria-haspopup="true" aria-expanded="false">' + ICON.swap + '</button>' +
@@ -599,15 +626,11 @@ function renderJobs() {
     '<div id="jobs-layout" class="jobs-layout"><div class="jobs-main">' +
     ((pending || due.length) ? '<div class="attention">' : '') +
     (pending ? '<button type="button" class="banner suggest" data-go="review">' + ICON.mail +
-      '<span class="grow"><b>' + plural(pending, 'suggestion') + ' waiting</b><span class="names"> — ' +
-      esc(S.data.review.suggestions.map(function (x) { return x.job.company; })
-        .filter(function (name, i, all) { return all.indexOf(name) === i; }).slice(0, 3).join(', ')) + '</span></span>' +
-      '<span class="go"><span class="wide-only">Review</span><span class="narrow-only">Review ›</span></span></button>' : '') +
+      '<span class="grow"><b>' + plural(pending, 'suggestion') + ' waiting</b></span>' +
+      '<span class="go"><span class="wide-only">Show</span><span class="narrow-only">Show ›</span></span></button>' : '') +
     (due.length ? '<button type="button" class="banner" id="due-banner">' + ICON.clock +
-      '<span class="grow"><b>' + plural(due.length, 'follow-up') + (due.length === 1 ? ' is ' : ' are ') + word + '</b>' +
-      '<span class="names"> — ' + esc(due.slice(0, 3).map(function (j) { return j.company; }).join(', ')) +
-      (due.length > 3 ? ' and ' + (due.length - 3) + ' more' : '') + '</span></span>' +
-      '<span class="go"><span class="wide-only">Show follow-ups</span><span class="narrow-only">Show ›</span></span></button>' : '') +
+      '<span class="grow"><b>' + plural(due.length, 'follow-up') + (due.length === 1 ? ' is ' : ' are ') + word + '</b></span>' +
+      '<span class="go"><span class="wide-only">Show</span><span class="narrow-only">Show ›</span></span></button>' : '') +
     ((pending || due.length) ? '</div>' : '') +
     '<div id="job-list"></div><p class="muted small" id="job-count"></p></div><div id="job-detail"></div></div>';
   const banner = $('#due-banner');
@@ -628,6 +651,8 @@ function renderChips() {
       return '<button type="button" class="chip" data-status="' + esc(s) + '" aria-pressed="' +
         (!all && S.filter.has(s)) + '">' + esc(s) + ' ' + S.data.counts[s] + '</button>';
     }).join('');
+  const chosen = !all && $('#chips .chip[aria-pressed="true"]');
+  if (chosen && !WIDE.matches) $('#chips').scrollLeft = Math.max(0, chosen.offsetLeft - 24);
 }
 
 function onChip(status) {
@@ -663,7 +688,7 @@ function jobsTable(jobs, followUps) {
           followUp = '<span class="overdue">' + followUp + ' <small>· ' + (days ? days + 'd late' : 'today') + '</small></span>';
         }
       }
-      const hint = s ? '<div class="sug"><span class="sp-text">' + suggestionText(s) + '</span>' + suggestionButtons(s) + '</div>' : '';
+      const hint = s ? '<div class="sug"><span class="sp-text">' + suggestionText(s) + suggestionWhy(s) + '</span>' + suggestionButtons(s) + '</div>' : '';
       return '<tr data-id="' + j.id + '" tabindex="0"' + (S.sel === j.id ? ' class="sel" aria-current="true"' : '') + '>' +
         '<td><div class="co">' + esc(j.company) + '</div><div class="ro">' + esc(j.role) + '</div></td>' +
         '<td class="mono"><span class="clip">' + esc(j.requisition_id) + '</span></td>' +
@@ -879,13 +904,14 @@ function suggestionCard(s, index, all) {
     (all > 1 ? ' · ' + (index + 1) + ' of ' + all : '') + '</div>' +
     '<div class="card-title">' + esc(job.company) + ' <span>— ' + esc(job.role) + '</span></div>' +
     '<div class="change"><span class="muted small mono">' + esc(job.requisition_id) + '</span>' +
-    statusPill(job.status, true) + '<span class="arrow">' + ICON.arrow + '</span>' + statusPill(s.suggested_status, true) + '</div>' +
+    statusPill(job.status, true) + '<span class="arrow">' + ICON.arrow + '</span>' + ghostPill(s.suggested_status, true) + '</div>' +
     detail +
-    '<div class="suggestion-foot"><button type="button" class="btn btn-primary" data-sact="accept">' + ICON.check +
+    '<div class="suggestion-foot"><button type="button" class="btn ' + (CLOSING_STATUSES.indexOf(s.suggested_status) >= 0 ? 'btn-gray' : 'btn-tint') + '" data-sact="accept">' + ICON.check +
     'Accept — ' + esc(s.suggested_status) + '</button>' +
     '<button type="button" class="btn" data-sact="dismiss">Dismiss</button>' +
+    '</div><details class="accept-as"><summary>Accept as a different status</summary><div class="accept-as-row">' +
     '<select aria-label="Status to accept as">' + statusOptions(s.suggested_status) + '</select>' +
-    '<button type="button" class="btn" data-sact="accept-as">Accept as</button></div>' +
+    '<button type="button" class="btn" data-sact="accept-as">Accept as</button></div></details>' +
     '</article>';
 }
 
@@ -1376,7 +1402,12 @@ function closeMenus(except) {
   });
 }
 document.addEventListener('click', function (e) { if (!e.target.closest('.menu-wrap')) closeMenus(); });
-document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeMenus(); });
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape') return;
+  if (document.querySelector('.menu:not([hidden])')) return closeMenus();
+  const close = WIDE.matches && document.querySelector('.detail [data-act="close-detail"]');
+  if (close) close.click();
+});
 
 $('#view').addEventListener('click', function (e) {
   const t = e.target;
