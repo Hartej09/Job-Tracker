@@ -739,6 +739,22 @@ function acceptSuggestion(id, status) {
   });
 }
 
+/** Put an accepted or dismissed suggestion back in the pending list (the Undo button). */
+function reopenSuggestion(id) {
+  return withLock_(function () {
+    const s = readSuggestions_().filter(function (x) { return x.id === Number(id); })[0];
+    if (!s) throw new Error(CONFLICT + 'that suggestion no longer exists');
+    if (s.state !== 'pending') {
+      s.state = 'pending';
+      s.resolved_at = null;
+      const range = sheet_(SHEET_SUGGESTIONS).getRange(s._row, 1, 1, SUGGESTION_COLUMNS.length);
+      range.setNumberFormat('@');
+      range.setValues([toRow_(s, SUGGESTION_COLUMNS)]);
+    }
+    return true;
+  });
+}
+
 function dismissSuggestion(id) {
   return withLock_(function () {
     resolveSuggestion_(findPendingSuggestion_(id), 'dismissed');

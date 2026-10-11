@@ -14,7 +14,7 @@
     --accent-fill: #2563eb;
     --control: #8093b2;
     --accent-text: #ffffff;
-    --tint: #e4eefe;
+    --tint: #ebf2fe;
     --link-hover: #1d4ed8;
     --danger: #b42318;
     --warn-bg: #fbf0dc;
@@ -31,6 +31,7 @@
     --s-rejected: #8f2a1e;
     --s-ghosted: #8a847c;
     --s-withdrawn: #b06a00;
+    --offer-fill: #17663a;
     --sp-applied: #e8ecf4;    --sf-applied: #3d4b6b;
     --sp-interviewing: #fae6f3; --sf-interviewing: #9a2378;
     --sp-offer: #e2f3e8;      --sf-offer: #17663a;
@@ -73,6 +74,7 @@
       --s-withdrawn: #e0a43a;
       --sp-applied: #222c40;    --sf-applied: #b4c0da;
       --sp-interviewing: #3a1d33; --sf-interviewing: #f19bd4;
+      --offer-fill: #1b7343;
       --sp-offer: #16301f;      --sf-offer: #7ddba0;
       --sp-rejected: #3a1c19;   --sf-rejected: #f4a299;
       --sp-ghosted: #2a2826;    --sf-ghosted: #c4bfb8;
@@ -200,7 +202,9 @@
   }
   .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
   .status.Interviewing { color: var(--sf-interviewing); background: var(--sp-interviewing); }
-  .status.Offer { color: var(--sf-offer); background: var(--sp-offer); }
+  /* An offer is the one outcome worth marking: solid green, white text. */
+  .status.Offer { color: #fff; background: var(--offer-fill); font-weight: 700; }
+  .status.Offer::before { background: #fff; }
   .status.Rejected { color: var(--sf-rejected); background: var(--sp-rejected); }
   .status.Ghosted { color: var(--sf-ghosted); background: var(--sp-ghosted); }
   .status.Withdrawn { color: var(--sf-withdrawn); background: var(--sp-withdrawn); }
@@ -209,6 +213,7 @@
   /* Filters */
   .chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 8px; scrollbar-width: none; }
   .chips::-webkit-scrollbar { display: none; }
+  @media (max-width: 899.98px) { .chips { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); padding-right: 24px; } }
   .chip, .pick {
     flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px;
     border-radius: 999px; border: 1px solid var(--control);
@@ -240,7 +245,10 @@
   .card-chev { width: 18px; height: 18px; margin: 3px -4px 0 -2px; color: var(--muted); }
   .card-title span { font-weight: 400; color: var(--text2); }
   .meta { color: var(--muted); font-size: 0.8438rem; margin-top: 8px; }
-  .notes { font-size: 0.875rem; margin-top: 8px; white-space: pre-wrap; color: var(--text2); }
+  .co, .ro, .card-title, .detail-head h3, .email-subject { unicode-bidi: plaintext; }
+  .notes { unicode-bidi: plaintext; font-size: 0.875rem; margin-top: 8px; white-space: pre-wrap; color: var(--text2); overflow-wrap: anywhere; }
+  /* Phone cards show three lines of notes; the full text is in the sheet. */
+  .card:not(.suggestion) > .notes { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
   .card .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   .card .actions .btn { min-height: 44px; padding: 4px 14px; font-size: 0.875rem; flex: 1 1 0; }
   @media (min-width: 620px) { .card .actions .btn { flex: 0 0 auto; } }
@@ -291,11 +299,19 @@
   .page-head h2 { margin-bottom: 2px; }
   .card.has-suggestion { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
   .suggest-pill {
-    display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
-    margin-top: 12px; padding: 0 12px; min-height: 44px; border-radius: 10px; border: 0; text-align: left;
-    background: var(--tint); color: var(--text); font: inherit; font-size: 0.8438rem; font-weight: 500; cursor: pointer;
+    display: flex; flex-direction: column; align-items: stretch; gap: 10px; width: 100%;
+    margin-top: 12px; padding: 12px; border-radius: 10px; text-align: left;
+    background: var(--tint); color: var(--text); font-size: 0.8438rem; font-weight: 500;
   }
-  .suggest-pill b { color: var(--accent); font-weight: 600; white-space: nowrap; }
+  .suggest-pill b { color: var(--accent); font-weight: 600; }
+  .sp-btns { display: flex; gap: 8px; }
+  .sp-btns .btn { flex: 1; margin-top: 0; min-height: 44px; font-size: 0.875rem; }
+  .danger-zone .btn { margin-top: 0; }
+  /* Needs-attention strip on Jobs: suggestions and follow-ups share one container. */
+  .attention { border-radius: 12px; overflow: hidden; border: 1px solid var(--border2); margin: 0 0 12px; }
+  .attention .banner { margin: 0; border: 0; border-radius: 0; }
+  .attention .banner + .banner { border-top: 1px solid var(--border2); }
+  .danger-zone { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
 
   /* Banner above the job list */
   .banner {
@@ -501,6 +517,11 @@
   #toast { display: flex; align-items: center; gap: 12px; }
   #toast.show { opacity: 1; }
   #toast.error { background: #b42318; pointer-events: auto; }
+  .toast-action {
+    flex: 0 0 auto; margin: -6px -8px -6px 0; padding: 0 12px; min-height: 36px; border: 0; border-radius: 10px;
+    background: rgba(255, 255, 255, .18); color: inherit; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  #toast.has-action { pointer-events: auto; }
   .toast-close {
     flex: 0 0 auto; width: 32px; height: 32px; margin: -6px -8px -6px 0; border: 0; border-radius: 16px;
     background: rgba(255, 255, 255, .18); color: inherit; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
@@ -521,7 +542,10 @@
   table.jobs tbody tr:last-child td { border-bottom: 0; }
   table.jobs .co { font-weight: 600; }
   table.jobs .ro { color: var(--muted); font-size: 0.8125rem; margin-top: 2px; }
-  table.jobs .sug { display: block; margin-top: 6px; font-size: 0.7812rem; font-weight: 600; text-decoration: none; }
+  table.jobs .sug { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-top: 8px; font-size: 0.8125rem; font-weight: 500; color: var(--text2); }
+  table.jobs .sug b { color: var(--accent); font-weight: 600; }
+  table.jobs .sug .sp-btns { gap: 6px; }
+  table.jobs .sug .sp-btns .btn { flex: 0 0 auto; min-height: 30px; font-size: 0.7812rem; }
   .detail { position: sticky; top: 16px; margin: 0; padding: 20px; max-height: calc(100vh - 32px); overflow-y: auto; }
   .detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
   .detail-head h3 { margin: 8px 0 0; font-size: 1.375rem; letter-spacing: -.015em; line-height: 1.2; }
@@ -567,8 +591,8 @@
       padding: 22px 14px 0;
     }
     .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 4px; font-size: 1.0625rem; font-weight: 700; letter-spacing: -.01em; order: -3; }
-    .brand > svg { width: 28px; height: 28px; fill: var(--text); stroke: none; }
-    .brand > svg path { stroke: var(--bg); stroke-width: 2.2; fill: none; }
+    .brand > svg { width: 28px; height: 28px; fill: var(--accent-fill); stroke: none; }
+    .brand > svg path { stroke: var(--accent-text); stroke-width: 2.2; fill: none; }
     .tabbar button {
       flex-direction: row; justify-content: flex-start; gap: 10px; min-height: 42px; padding: 0 10px;
       border-radius: 10px; font-size: 0.9062rem; font-weight: 500; color: var(--text2); text-align: left;

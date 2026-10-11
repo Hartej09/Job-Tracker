@@ -20,6 +20,10 @@ const FOLLOW_UP_EXCLUDED = ['Rejected', 'Withdrawn', 'Offer'];
 const HISTORY_SOURCES = ['manual', 'email', 'import', 'inactivity'];
 
 const REQUIRED_FIELDS = ['requisition_id', 'company', 'role'];
+// Longest text accepted per field; a Sheets cell holds 50,000, so these stay well inside it.
+const MAX_FIELD_LENGTH = 200;
+const MAX_URL_LENGTH = 2000;
+const MAX_NOTES_LENGTH = 5000;
 const DATE_FIELDS = ['date_applied', 'follow_up'];
 const JOB_FIELDS = [
   'requisition_id', 'company', 'role', 'date_applied', 'status', 'location',
@@ -291,6 +295,10 @@ function normalizeFields_(data) {
     const v = isBlank_(data[f]) ? null : String(data[f]).trim();
     if (v !== null && DATE_FIELDS.indexOf(f) >= 0 && !isIsoDate_(v)) {
       problems.push(FIELD_LABELS[f] + ' must be a valid date (got "' + v + '")');
+    }
+    const limit = f === 'notes' ? MAX_NOTES_LENGTH : f === 'job_url' ? MAX_URL_LENGTH : MAX_FIELD_LENGTH;
+    if (v !== null && v.length > limit) {
+      problems.push(FIELD_LABELS[f] + ' is too long (' + v.length + ' characters; the limit is ' + limit + ')');
     }
     clean[f] = v;
   });

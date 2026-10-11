@@ -7,8 +7,9 @@ Decisions behind the Job Tracker UI, so later changes stay consistent. The look 
 
 One job: show what needs attention next. Everything else (tables, forms, stats) supports that.
 The signature element is the suggestion: Gmail or inactivity proposes a status change and the
-person accepts or dismisses it. Suggestions surface as a banner on Jobs, a hint under the status
-in the table, a strip on phone cards, and the Review page.
+person accepts or dismisses it. Suggestions surface as one "needs attention" strip on Jobs (suggestions, then follow-ups), an Accept / Dismiss pair under the
+status in the table and on phone cards, and the Suggestions page. Accepting or dismissing shows an Undo toast that puts the suggestion back. Jobs with a suggestion or an
+overdue follow-up sort first; no row is pre-opened.
 
 ## Look
 
@@ -17,7 +18,7 @@ in the table, a strip on phone cards, and the Review page.
 - **Type**: Instrument Sans for everything, IBM Plex Mono for requisition IDs (so IDs read as IDs).
   Sizes are in `rem` and the root follows the iOS text-size setting. Inputs never go below 16px.
 - **Status colours** are fixed meanings: Applied slate, Interviewing magenta, Offer green, Rejected red,
-  Ghosted warm grey, Withdrawn amber. Every status also has a text label and a dot, never colour alone.
+  Ghosted warm grey, Withdrawn amber. Every status also has a text label and a dot, never colour alone. Offer is the one solid pill (white on green), because it is the outcome worth noticing. Names and notes align to their own script, so Arabic and Hebrew sit right.
 - **Blue means "act"**: links, primary buttons, selection. Don't use it for status.
 
 ## Tokens (CSS variables in `:root`)
@@ -32,7 +33,7 @@ in the table, a strip on phone cards, and the Review page.
 
 ## Layout
 
-- One breakpoint, 900px. Below it: bottom tab bar (Jobs, Follow-ups, Review, Stats), "+" Add job in the
+- One breakpoint, 900px. Below it: bottom tab bar (Jobs, Follow-ups, Suggestions, Stats), "+" Add job in the
   Jobs header, cards that open a bottom sheet. At 900px and up: sidebar, job table, details panel.
 - Layout follows the space available, not the device. Same functions at every size.
 - Table columns drop in this order when the details panel is open: Location (under 1280px), then Applied
@@ -40,6 +41,8 @@ in the table, a strip on phone cards, and the Review page.
 
 ## Behaviour rules
 
+- **Limits.** Text fields cap at 200 characters (URL 2,000, notes 5,000); the error names the field and the limit.
+- **Save waits for an edit.** Save stays disabled until a field changes.
 - **Never lose edits.** A form with unsaved changes is not redrawn by refresh or sync, and closing it,
   switching rows, or changing page asks "Discard your changes?" first.
 - **Errors stay until dismissed**; confirmations fade after 3.5s.

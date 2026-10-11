@@ -473,3 +473,11 @@ test('onEdit ignores other sheets and the header row; warns on multi-cell status
   assert.match(env.ss.toasts[0].message, /one cell at a time/);
   assert.equal(history(env, job.id).length, history0);
 });
+
+test('text fields have length limits that name the field and the limit', () => {
+  const env = setup();
+  assert.throws(() => env.gas.addJob({ requisition_id: 'R-2', company: 'x'.repeat(201), role: 'Engineer' }, false), /Company is too long \(201 characters; the limit is 200\)/);
+  assert.throws(() => env.gas.addJob({ requisition_id: 'R-3', company: 'Acme', role: 'Engineer', notes: 'n'.repeat(5001) }, false), /Notes is too long/);
+  const ok = add(env, { requisition_id: 'R-4', company: 'x'.repeat(200), notes: 'n'.repeat(5000) });
+  assert.ok(ok.id);
+});

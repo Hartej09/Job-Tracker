@@ -109,14 +109,21 @@ function errorText(e) {
 
 let toastTimer = null;
 /** Errors stay until dismissed; confirmations fade on their own. */
-function toast(message, isError) {
+let toastAction = null;
+/** action = { label, run }: a confirmation with one follow-up button, e.g. Undo. */
+function toast(message, isError, action) {
   const t = $('#toast');
   $('#toast-text').textContent = message;
   $('#toast-close').hidden = !isError;
+  toastAction = !isError && action ? action.run : null;
+  const act = $('#toast-action');
+  act.hidden = !toastAction;
+  if (toastAction) act.textContent = action.label;
   t.setAttribute('role', isError ? 'alert' : 'status');
-  t.className = 'show' + (isError ? ' error' : '');
+  t.className = 'show' + (isError ? ' error' : '') + (toastAction ? ' has-action' : '');
   clearTimeout(toastTimer);
-  if (!isError) toastTimer = setTimeout(function () { t.className = ''; }, 3500);
+  // A toast with an Undo stays long enough to be reached.
+  if (!isError) toastTimer = setTimeout(function () { t.className = ''; toastAction = null; }, toastAction ? 7000 : 3500);
 }
 
 function handleError(e) {
@@ -232,7 +239,7 @@ async function runSync(manual) {
     const result = await call('syncNow');
     if (manual && result.error) toast('Sync failed: ' + result.error, true);
     else if (manual && result.skipped === 'already-running') toast('A sync is already running.');
-    else if (result.newSuggestions) toast(result.newSuggestions + ' new suggestion(s) to review');
+    else if (result.newSuggestions) toast(plural(result.newSuggestions, 'new suggestion') + ' to review');
     else if (manual && result.rateLimited) toast('Gmail asked to slow down — the rest is checked on the next sync.');
     else if (manual && result.more) toast('Checked some emails — the rest continues on the next sync.');
     else if (manual) toast('Up to date');
@@ -280,6 +287,21 @@ function isOverdue(job) {
   return job.follow_up && job.follow_up <= S.data.today && FOLLOW_UP_EXCLUDED.indexOf(job.status) < 0;
 }
 
+/** One line saying what changed and where it came from, e.g. "Email says Offer · Oct 9". */
+function suggestionText(s) {
+  if (s.kind === 'email') {
+    return 'Email says <b>' + esc(s.suggested_status) + '</b>' + (s.email_date ? ' · ' + esc(shortDate(String(s.email_date).slice(0, 10))) : '');
+  }
+  return 'Quiet ' + s.inactive_days + ' days — mark <b>' + esc(s.suggested_status) + '</b>?';
+}
+
+function suggestionButtons(s) {
+  return '<span class="sp-btns"><button type="button" class="btn btn-small btn-primary" data-qs="accept" data-sid="' + s.id +
+    '" aria-label="Accept ' + esc(s.suggested_status) + ' for ' + esc(s.job.company) + '">Accept</button>' +
+    '<button type="button" class="btn btn-small" data-qs="dismiss" data-sid="' + s.id +
+    '" aria-label="Dismiss suggestion for ' + esc(s.job.company) + '">Dismiss</button></span>';
+}
+
 function card(job) {
   const bits = ['<span class="mono">' + esc(job.requisition_id) + '</span>'];
   if (job.date_applied) bits.push('applied ' + shortDate(job.date_applied));
@@ -301,10 +323,9 @@ function card(job) {
     '<div class="card-head"><div class="card-title">' + esc(job.company) +
     ' <span>— ' + esc(job.role) + '</span></div>' +
     statusPill(job.status) + ICON.chevR.replace('<svg', '<svg class="card-chev"') + '</div>' +
-    (pending.length ? '<button type="button" class="suggest-pill" data-act="review"><span>' + (pending[0].kind === 'email'
-        ? 'Email says <b>' + esc(pending[0].suggested_status) + '</b>'
-        : 'Quiet ' + pending[0].inactive_days + ' days — mark <b>' + esc(pending[0].suggested_status) + '</b>?') +
-      (pending.length > 1 ? ' +' + (pending.length - 1) : '') + '</span><b>Review ›</b></button>' : '') +
+    (pending.length ? '<div class="suggest-pill"><span class="sp-text">' + suggestionText(pending[0]) +
+      (pending.length > 1 ? ' <button type="button" class="linklike" data-act="review">+' + (pending.length - 1) + ' more</button>' : '') + '</span>' +
+      suggestionButtons(pending[0]) + '</div>' : '') +
     '<div class="meta">' + bits.join(' · ') + '</div>' +
     (job.contact ? '<div class="meta">Contact: ' + esc(job.contact) + '</div>' : '') +
     (job.notes ? '<div class="notes">' + esc(job.notes) + '</div>' : '') +
@@ -327,12 +348,12 @@ function field(name, value, opts) {
   if (name === 'status') {
     input = '<select id="' + id + '" name="status">' + statusOptions(value || 'Applied') + '</select>';
   } else if (name === 'notes') {
-    input = '<textarea id="' + id + '" name="notes">' + esc(value) + '</textarea>';
+    input = '<textarea id="' + id + '" name="notes" dir="auto">' + esc(value) + '</textarea>';
   } else {
     const type = name === 'date_applied' || name === 'follow_up' ? 'date' : 'text';
     const extra = name === 'job_url' ? ' inputmode="url" autocapitalize="off"' :
       name === 'email_domain' ? ' autocapitalize="off" placeholder="e.g. acme.com"' : '';
-    input = '<input type="' + type + '" id="' + id + '" name="' + name + '" value="' + esc(value) + '"' +
+    input = '<input type="' + type + '" id="' + id + '" name="' + name + '"' + (type === 'text' && name !== 'job_url' && name !== 'email_domain' ? ' dir="auto"' : '') + ' value="' + esc(value) + '"' +
       (opts.required ? ' required' : '') + extra + '>';
   }
   return '<div class="' + (opts.wide ? 'wide' : '') + '"><label for="' + id + '">' + label + '</label>' + input + '</div>';
@@ -383,11 +404,10 @@ function editForm(job, confirmDelete, inPanel) {
       ? '<div class="notice warn">Delete this job and its status history? This can\'t be undone.' +
         '<div class="row" style="margin-top:8px"><button type="button" class="btn btn-danger solid" data-act="delete-yes">Yes, delete</button>' +
         '<button type="button" class="btn" data-act="delete-no">Keep it</button></div></div>'
-      : '<div class="row" style="margin-top:12px">' +
-        '<button type="button" class="btn btn-danger" data-act="delete">Delete</button>' +
-        '<span style="flex:1"></span>' +
+      : '<div class="row form-actions" style="margin-top:12px"><span style="flex:1"></span>' +
         (inPanel ? '<button type="button" class="btn" data-act="close-detail">Cancel</button>' : '') +
-        '<button type="submit" class="btn btn-primary">Save</button></div>') +
+        '<button type="submit" class="btn btn-primary" disabled>Save</button></div>' +
+        '<div class="danger-zone"><button type="button" class="btn btn-danger btn-small" data-act="delete">Delete this job…</button></div>') +
     '</form>';
 }
 
@@ -577,8 +597,9 @@ function renderJobs() {
     '<input type="search" id="search" aria-label="Search jobs" aria-keyshortcuts="/" placeholder="Search company, role, req ID, notes" value="' + esc(S.search) + '"></div></div>' +
     '<div class="filters"><div class="chips" id="chips"></div></div>' +
     '<div id="jobs-layout" class="jobs-layout"><div class="jobs-main">' +
+    ((pending || due.length) ? '<div class="attention">' : '') +
     (pending ? '<button type="button" class="banner suggest" data-go="review">' + ICON.mail +
-      '<span class="grow"><b>' + plural(pending, 'suggestion') + ' to review</b><span class="names"> — ' +
+      '<span class="grow"><b>' + plural(pending, 'suggestion') + ' waiting</b><span class="names"> — ' +
       esc(S.data.review.suggestions.map(function (x) { return x.job.company; })
         .filter(function (name, i, all) { return all.indexOf(name) === i; }).slice(0, 3).join(', ')) + '</span></span>' +
       '<span class="go"><span class="wide-only">Review</span><span class="narrow-only">Review ›</span></span></button>' : '') +
@@ -587,6 +608,7 @@ function renderJobs() {
       '<span class="names"> — ' + esc(due.slice(0, 3).map(function (j) { return j.company; }).join(', ')) +
       (due.length > 3 ? ' and ' + (due.length - 3) + ' more' : '') + '</span></span>' +
       '<span class="go"><span class="wide-only">Show follow-ups</span><span class="narrow-only">Show ›</span></span></button>' : '') +
+    ((pending || due.length) ? '</div>' : '') +
     '<div id="job-list"></div><p class="muted small" id="job-count"></p></div><div id="job-detail"></div></div>';
   const banner = $('#due-banner');
   if (banner) banner.addEventListener('click', function () { go('followups'); });
@@ -641,8 +663,7 @@ function jobsTable(jobs, followUps) {
           followUp = '<span class="overdue">' + followUp + ' <small>· ' + (days ? days + 'd late' : 'today') + '</small></span>';
         }
       }
-      const hint = s ? '<a class="sug" href="#" data-act="review">' + (s.kind === 'email'
-        ? 'Email says ' + esc(s.suggested_status) : 'Quiet ' + s.inactive_days + ' days — ' + esc(s.suggested_status) + '?') + ' →</a>' : '';
+      const hint = s ? '<div class="sug"><span class="sp-text">' + suggestionText(s) + '</span>' + suggestionButtons(s) + '</div>' : '';
       return '<tr data-id="' + j.id + '" tabindex="0"' + (S.sel === j.id ? ' class="sel" aria-current="true"' : '') + '>' +
         '<td><div class="co">' + esc(j.company) + '</div><div class="ro">' + esc(j.role) + '</div></td>' +
         '<td class="mono"><span class="clip">' + esc(j.requisition_id) + '</span></td>' +
@@ -656,9 +677,19 @@ function jobsTable(jobs, followUps) {
 }
 
 /** keepDetail: leave an open details panel alone (typing in search must not wipe unsaved edits). */
+/** Jobs with a pending suggestion first, then overdue follow-ups, then the rest in their usual order. */
+function attentionFirst(jobs) {
+  const withSuggestion = {};
+  S.data.review.suggestions.forEach(function (s) { withSuggestion[s.job.id] = true; });
+  const rank = function (j) { return withSuggestion[j.id] ? 0 : isOverdue(j) ? 1 : 2; };
+  return jobs.map(function (j, i) { return { j: j, i: i, r: rank(j) }; })
+    .sort(function (a, b) { return a.r - b.r || a.i - b.i; })
+    .map(function (x) { return x.j; });
+}
+
 function renderJobList(keepDetail) {
   const followUps = S.view === 'followups';
-  const jobs = followUps ? dueJobs() : visibleJobs();
+  const jobs = followUps ? dueJobs() : attentionFirst(visibleJobs());
   const wide = WIDE.matches;
   if (!followUps) {
     $('#job-count').textContent = jobs.length === S.data.jobs.length ? '' : 'Showing ' + jobs.length + ' of ' + plural(S.data.jobs.length, 'job');
@@ -672,7 +703,7 @@ function renderJobList(keepDetail) {
         '<button type="button" class="btn" data-go="import">Import CSV</button></div></div>')
     : wide ? jobsTable(jobs, followUps) : jobs.map(card).join('');
   // On Follow-ups, a job drops out of the list (and its panel closes) once its date moves past today.
-  if (wide && !S.sel && !S.selDismissed && jobs.length) S.sel = jobs[0].id;
+  if (wide && followUps && !S.sel && !S.selDismissed && jobs.length) S.sel = jobs[0].id;
   const selected = wide && S.sel && (!followUps || jobs.some(function (j) { return j.id === S.sel; })) ? jobById(S.sel) : null;
   if (S.sel && !selected && wide) S.sel = null;
   const shown = $('#job-detail .detail');
@@ -860,35 +891,63 @@ function suggestionCard(s, index, all) {
 
 function renderReview() {
   const r = S.data.review;
-  $('#view').innerHTML = '<h2>Review</h2>' + syncPanel(r) +
+  $('#view').innerHTML = '<h2>Suggestions</h2>' + syncPanel(r) +
     (r.suggestions.length
       ? '<p class="muted small">Suggested status changes. Nothing changes until you accept.</p>' +
         r.suggestions.map(function (x, i) { return suggestionCard(x, i, r.suggestions.length); }).join('')
-      : '<div class="empty">Nothing to review. ✓</div>');
+      : '<div class="empty"><b>All caught up</b><br>No suggestions waiting. New ones appear after the next sync.</div>');
   const button = $('#sync-now');
   if (button) button.addEventListener('click', function () { runSync(true); });
 }
 
-async function onSuggestionAction(button) {
-  const cardEl = button.closest('.suggestion');
-  const id = Number(cardEl.dataset.sid);
+/** Accept or dismiss one suggestion, from the Suggestions page, a table row or a phone card. */
+async function resolveSuggestion(id, act, chosenStatus, buttons) {
   const s = S.data.review.suggestions.filter(function (x) { return x.id === id; })[0];
-  const act = button.dataset.sact;
-  cardEl.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+  if (!s) return;
+  const before = s.job.status;
+  const jobId = s.job.id;
+  const company = s.job.company;
+  buttons.forEach(function (b) { b.disabled = true; });
   try {
     if (act === 'dismiss') {
       await call('dismissSuggestion', id);
-      toast('Dismissed');
+      toast('Dismissed', false, {
+        label: 'Undo',
+        run: async function () {
+          try {
+            await call('reopenSuggestion', id);
+            toast('The suggestion is back.');
+            await reload();
+          } catch (e) { handleError(e); }
+        },
+      });
     } else {
-      const status = act === 'accept-as' ? cardEl.querySelector('select').value : s.suggested_status;
+      const status = chosenStatus || s.suggested_status;
       await call('acceptSuggestion', id, status);
-      toast(s.job.company + ' → ' + status);
+      toast(company + ' → ' + status + (status === 'Offer' ? '. Congratulations.' : ''), false, {
+        label: 'Undo',
+        run: async function () {
+          try {
+            await call('updateJob', jobId, { status: before });
+            await call('reopenSuggestion', id);
+            toast(company + ' is back to ' + before + '. The suggestion is waiting again.');
+            await reload();
+          } catch (e) { handleError(e); }
+        },
+      });
     }
     await reload();
   } catch (e) {
-    cardEl.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+    buttons.forEach(function (b) { b.disabled = false; });
     handleError(e);
   }
+}
+
+function onSuggestionAction(button) {
+  const cardEl = button.closest('.suggestion');
+  const act = button.dataset.sact;
+  return resolveSuggestion(Number(cardEl.dataset.sid), act,
+    act === 'accept-as' ? cardEl.querySelector('select').value : null, Array.from(cardEl.querySelectorAll('button')));
 }
 
 // ---------------------------------------------------------------------------
@@ -1299,7 +1358,11 @@ $('#refresh').addEventListener('click', function () { reload(); });
 $('#side-refresh').addEventListener('click', function () { reload(); });
 function markDirty(el) {
   const form = el.closest && el.closest('.edit-form');
-  if (form) form.dataset.dirty = '1';
+  if (form) {
+    form.dataset.dirty = '1';
+    const save = form.querySelector('button[type="submit"]');
+    if (save) save.disabled = false;
+  }
 }
 $('#view').addEventListener('input', function (e) { markDirty(e.target); });
 $('#view').addEventListener('change', function (e) { markDirty(e.target); });
@@ -1332,6 +1395,11 @@ $('#view').addEventListener('click', function (e) {
     else if (item.dataset.m === 'export') exportView();
     else if (item.dataset.m === 'refresh') reload();
     return;
+  }
+  const quickSug = t.closest('[data-qs]');
+  if (quickSug) {
+    return resolveSuggestion(Number(quickSug.dataset.sid), quickSug.dataset.qs, null,
+      Array.from(quickSug.parentNode.querySelectorAll('button')));
   }
   const review = t.closest('[data-act="review"]');
   if (review) { e.preventDefault(); return go('review'); }
@@ -1410,6 +1478,12 @@ if (WIDE.addEventListener) {
   WIDE.addEventListener('change', function () { markNav(); if (S.data && (S.view === 'jobs' || S.view === 'followups') && $('#job-list')) renderJobList(); });
 }
 $('#toast-close').addEventListener('click', function () { $('#toast').className = ''; });
+$('#toast-action').addEventListener('click', function () {
+  const run = toastAction;
+  toastAction = null;
+  $('#toast').className = '';
+  if (run) run();
+});
 
 // Swipe the phone edit sheet down by its handle to dismiss it.
 (function () {

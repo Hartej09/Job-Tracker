@@ -497,3 +497,21 @@ test('upgrading a Phase 1 sheet keeps data and shifts extra user columns right',
   for (const name of ['Suggestions', 'Settings', 'Rules']) assert.ok(env.ss.getSheetByName(name), name);
   assert.equal(env.ss.getSheetByName('Settings').dump().length, env.gas.DEFAULT_SETTINGS.length);
 });
+
+test('reopenSuggestion puts an accepted or dismissed suggestion back in the pending list', () => {
+  const env = synced();
+  const job = add(env);
+  env.gmail.add({ from: 'jobs@acme.com', subject: 'R-10001', body: 'Unfortunately not this time.' });
+  sync(env);
+  const s = review(env).suggestions[0];
+  env.gas.acceptSuggestion(s.id);
+  env.gas.updateJob(job.id, { status: 'Applied' });
+  assert.equal(review(env).suggestions.length, 0);
+  env.gas.reopenSuggestion(s.id);
+  assert.equal(review(env).suggestions.length, 1);
+  assert.equal(allSuggestions(env)[0].state, 'pending');
+  env.gas.dismissSuggestion(s.id);
+  env.gas.reopenSuggestion(s.id);
+  assert.equal(review(env).suggestions.length, 1);
+  assert.throws(() => env.gas.reopenSuggestion(999), /CONFLICT/);
+});
