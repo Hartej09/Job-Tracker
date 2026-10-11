@@ -15,6 +15,7 @@ const S = {
   search: '',
   open: {},         // job id -> 'edit' | 'confirm-delete' | 'history'
   sel: null,        // job id shown in the details panel (wide screens)
+  animateOpen: null,  // job id whose edit sheet is opening right now (plays the slide-in once)
   stale: false,      // data changed while a form had unsaved edits; redraw when it closes
   afterDiscard: null, // what to do once the person confirms discarding edits
   selDismissed: false, // the panel was closed on purpose; don't auto-open it again
@@ -295,7 +296,7 @@ function card(job) {
   const mode = S.open[job.id];
   const pending = S.data.review.suggestions.filter(function (s) { return s.job.id === job.id; });
   const editing = mode === 'edit' || mode === 'confirm-delete';
-  return '<article class="card' + (pending.length ? ' has-suggestion' : '') + (editing ? ' is-editing' : '') +
+  return '<article class="card' + (pending.length ? ' has-suggestion' : '') + (editing ? ' is-editing' : '') + (S.animateOpen === job.id ? ' entering' : '') +
     '" data-id="' + job.id + '">' +
     '<div class="card-head"><div class="card-title">' + esc(job.company) +
     ' <span>— ' + esc(job.role) + '</span></div>' +
@@ -513,7 +514,9 @@ async function onCardAction(button) {
     }
     return;
   }
+  if (act === 'edit' && S.open[id] === 'edit') S.animateOpen = id;
   rerenderCard(id);
+  S.animateOpen = null;
   if (S.open[id] === 'history') showHistory(id);
 }
 
@@ -626,7 +629,8 @@ function jobsTable(jobs, followUps) {
   const none = '<span class="faint">—</span>';
   return '<div class="table-wrap"><table class="jobs"><thead><tr>' +
     (followUps ? ['Company &amp; role', 'Req ID', 'Status', 'Follow up', 'Contact'] : ['Company &amp; role', 'Req ID', 'Status', 'Applied', 'Follow up', 'Location']).map(function (h, i, all) {
-      return '<th scope="col"' + (i === all.length - 1 ? ' class="col-opt"' : '') + '>' + h + '</th>';
+      const cls = i === all.length - 1 ? 'col-opt' : (!followUps && h === 'Applied' ? 'col-opt2' : '');
+      return '<th scope="col"' + (cls ? ' class="' + cls + '"' : '') + '>' + h + '</th>';
     }).join('') + '</tr></thead><tbody>' + jobs.map(function (j) {
       const s = (pending[j.id] || [])[0];
       let followUp = none;
@@ -641,13 +645,13 @@ function jobsTable(jobs, followUps) {
         ? 'Email says ' + esc(s.suggested_status) : 'Quiet ' + s.inactive_days + ' days — ' + esc(s.suggested_status) + '?') + ' →</a>' : '';
       return '<tr data-id="' + j.id + '" tabindex="0"' + (S.sel === j.id ? ' class="sel" aria-current="true"' : '') + '>' +
         '<td><div class="co">' + esc(j.company) + '</div><div class="ro">' + esc(j.role) + '</div></td>' +
-        '<td class="mono">' + esc(j.requisition_id) + '</td>' +
+        '<td class="mono"><span class="clip">' + esc(j.requisition_id) + '</span></td>' +
         '<td>' + statusPill(j.status) + hint + '</td>' +
         (followUps
-          ? '<td>' + followUp + '</td><td class="col-opt">' + (j.contact ? esc(j.contact) : none) + '</td></tr>'
-          : '<td>' + (j.date_applied ? shortDate(j.date_applied) : none) + '</td>' +
+          ? '<td>' + followUp + '</td><td class="col-opt"><span class="clip">' + (j.contact ? esc(j.contact) : none) + '</span></td></tr>'
+          : '<td class="col-opt2">' + (j.date_applied ? shortDate(j.date_applied) : none) + '</td>' +
             '<td>' + followUp + '</td>' +
-            '<td class="col-opt">' + (j.location ? esc(j.location) : none) + '</td></tr>');
+            '<td class="col-opt"><span class="clip">' + (j.location ? esc(j.location) : none) + '</span></td></tr>');
     }).join('') + '</tbody></table></div>';
 }
 
@@ -1376,8 +1380,12 @@ $('#view').addEventListener('click', function (e) {
   }
   const tapped = t.closest('article.card[data-id]');
   if (tapped && !WIDE.matches && !tapped.classList.contains('is-editing') && !t.closest('button, a, input, select, textarea, label, form')) {
-    S.open[Number(tapped.dataset.id)] = 'edit';
-    return rerenderCard(Number(tapped.dataset.id));
+    const openId = Number(tapped.dataset.id);
+    S.open[openId] = 'edit';
+    S.animateOpen = openId;
+    rerenderCard(openId);
+    S.animateOpen = null;
+    return;
   }
   const row = t.closest('table.jobs tbody tr');
   if (row) selectJob(Number(row.dataset.id));

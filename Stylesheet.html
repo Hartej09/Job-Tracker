@@ -548,6 +548,10 @@
   .timeline .dot { width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; flex: 0 0 auto; }
   .timeline .muted { font-size: 0.8125rem; }
   @media (max-width: 1279px) { .has-detail .col-opt { display: none; } }
+  @media (max-width: 1179px) {
+    .has-detail .col-opt2 { display: none; }
+    .has-detail table.jobs td, .has-detail table.jobs th { padding-left: 10px; padding-right: 10px; }
+  }
   table.jobs td, table.jobs th { padding-left: 12px; padding-right: 12px; }
 
   @media (min-width: 900px) {
@@ -615,6 +619,7 @@
     .tabbar .side-foot .btn:hover { background: var(--bg); }
     h2 { margin-top: 10px; }
     .jobs-layout.has-detail { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 24px; align-items: start; }
+    @media (max-width: 1179px) { .jobs-layout.has-detail { grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; } }
     .banner .names { display: inline; }
     .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -625,6 +630,52 @@
     .suggestion-foot select { width: 190px; margin-left: auto; }
     .add-form { max-width: 720px; }
   }
+
+  /* Rows stay compact: a long name shows two lines here and in full in the panel or sheet. */
+  table.jobs td .co, table.jobs td .ro, .card-title, .banner .grow {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+  }
+  .clip { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+  .card-title { -webkit-line-clamp: 3; line-clamp: 3; }
+  .card-title span { display: inline; }
+
+  @media (max-width: 359px) {
+    .seg, .quick { font-size: 0.8125rem; padding: 0 2px; white-space: nowrap; }
+  }
+
+  /* Worst-case content: very long names, IDs and notes wrap instead of widening the page. */
+  .card-title, .card-head > div, .meta, .notes, .email-subject, .email .meta, .sheet-head b, .sheet-head .meta,
+  .detail-head h3, .detail-head .meta, .detail-head > div, .kv dd, .timeline b, .timeline .muted,
+  .banner .grow, .due b, .due .meta, .plist li, .co, .ro, table.jobs td, .history li, .file-pick > span {
+    overflow-wrap: anywhere; min-width: 0;
+  }
+  .card-head > div { flex: 1 1 0; }
+  table.jobs td .co, table.jobs td .ro { word-break: break-word; }
+  .jobs-main, .jobs-layout > div, .card, .detail { min-width: 0; }
+
+  /* Motion: short, ease-out, and only where it explains something. Frequent actions (row selection,
+     tab changes, hover) stay instant. Everything here is skipped when the system asks for less motion. */
+  @media (prefers-reduced-motion: no-preference) {
+    .btn, .chip, .pick, .seg, .quick, .icon-btn, .row-link, .tabbar button, .suggest-pill {
+      transition: transform .12s ease-out, background-color .12s ease-out, border-color .12s ease-out;
+    }
+    .btn:active, .chip:active, .pick:active, .seg:active, .quick:active, .icon-btn:active,
+    .row-link:active, .tabbar button:active, .suggest-pill:active { transform: scale(.97); }
+    article.card[data-id]:not(.is-editing) { transition: transform .12s ease-out; }
+    article.card[data-id]:not(.is-editing):active { transform: scale(.99); }
+    .menu { transform-origin: top right; animation: pop-in .14s ease-out; }
+    .discard-bar { animation: fade-up .16s ease-out; }
+    #toast { transform: translate(-50%, 8px); transition: opacity .2s ease-out, transform .2s ease-out; }
+    #toast.show { transform: translate(-50%, 0); }
+    @media (max-width: 899px) {
+      .card.entering::after { animation: fade-in .2s ease-out; }
+      .card.entering .edit-form { animation: sheet-in .24s cubic-bezier(.2, .8, .2, 1); }
+    }
+  }
+  @keyframes pop-in { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: scale(1); } }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes fade-up { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  @keyframes sheet-in { from { transform: translateY(32px); opacity: .6; } to { transform: none; opacity: 1; } }
 
   /* Respect the system "reduce motion" setting. */
   @media (prefers-reduced-motion: reduce) {
