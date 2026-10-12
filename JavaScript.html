@@ -296,10 +296,16 @@ function isOverdue(job) {
   return job.follow_up && job.follow_up <= S.data.today && FOLLOW_UP_EXCLUDED.indexOf(job.status) < 0;
 }
 
+/** YYYY-MM-DD in the viewer's own time zone (an evening email must not be dated tomorrow). */
+function localIso(d) {
+  if (isNaN(d.getTime())) return '';
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 /** One line saying what changed and where it came from, e.g. "Email says Offer · Oct 9". */
 function suggestionText(s) {
   if (s.kind === 'email') {
-    return ICON.mail.replace('<svg', '<svg class="sp-ico"') + 'Email says ' + ghostPill(s.suggested_status) + (s.email_date ? ' · ' + esc(shortDate(String(s.email_date).slice(0, 10))) : '');
+    return ICON.mail.replace('<svg', '<svg class="sp-ico"') + 'Email says ' + ghostPill(s.suggested_status) + (s.email_date ? ' · ' + esc(shortDate(localIso(new Date(s.email_date)))) : '');
   }
   return ICON.clock.replace('<svg', '<svg class="sp-ico"') + 'Quiet ' + s.inactive_days + ' days — mark ' + ghostPill(s.suggested_status) + '?';
 }
@@ -416,15 +422,17 @@ function editForm(job, confirmDelete, inPanel) {
   const p = { prefix: 'e' + job.id };
   return '<form class="panel edit-form" data-updated="' + esc(job.updated_at) + '">' +
     (inPanel ? '' : '<div class="sheet-head"><div><b>' + esc(job.company) + '</b><div class="meta">' + esc(job.role) +
-      ' · <span class="mono">' + esc(job.requisition_id) + '</span></div></div>' +
+      ' · <span class="mono">' + esc(job.requisition_id) + '</span></div><div class="sheet-status">' + statusPill(job.status) + '</div></div>' +
       '<button type="button" class="btn btn-ghost icon-btn" data-act="edit" aria-label="Close">' + ICON.close + '</button></div>' +
-      jobSuggestionBlock(job)) +
+      jobSuggestionBlock(job) +
+      (linkItems(job) ? '<div class="sheet-links">' + linkItems(job) + '</div>' : '')) +
+    (inPanel ? '' : '<details class="update-fields"><summary>Update status, follow-up or notes</summary>') +
     statusSeg(job.status) +
     followUpField(job, 'e' + job.id + '-follow_up') +
     field('notes', job.notes, p) +
+    (inPanel ? '' : '</details>') +
     (inPanel ? '' : '<div class="sheet-links"><button type="button" class="row-link" data-act="edit-all">All fields' + ICON.chevR + '</button>' +
       '<button type="button" class="row-link" data-act="sheet-history">History' + ICON.chevR + '</button>' +
-      linkItems(job) +
       '</div><div class="history-panel sheet-history" hidden></div>') +
     '<details><summary class="small muted">More fields</summary><div class="grid">' +
     field('requisition_id', job.requisition_id, Object.assign({ required: true }, p)) +
@@ -736,7 +744,6 @@ function renderJobList(keepDetail) {
         '<button type="button" class="btn" data-go="import">Import CSV</button></div></div>')
     : wide ? jobsTable(jobs, followUps) : jobs.map(card).join('');
   // On Follow-ups, a job drops out of the list (and its panel closes) once its date moves past today.
-  if (wide && followUps && !S.sel && !S.selDismissed && jobs.length) S.sel = jobs[0].id;
   const selected = wide && S.sel && (!followUps || jobs.some(function (j) { return j.id === S.sel; })) ? jobById(S.sel) : null;
   if (S.sel && !selected && wide) S.sel = null;
   const shown = $('#job-detail .detail');
@@ -923,13 +930,24 @@ function suggestionCard(s, index, all) {
     '</article>';
 }
 
+/** The last few accepted or dismissed suggestions, each with an Undo, for a mis-tap after the toast has gone. */
+function recentList(recent) {
+  if (!recent || !recent.length) return '';
+  return '<h3 class="recent-h">Recently resolved</h3><ul class="recent">' + recent.map(function (x) {
+    const what = x.state === 'accepted' ? 'Accepted ' + esc(x.suggested_status) : 'Dismissed';
+    return '<li><span class="recent-text"><b>' + esc(x.job.company) + '</b> <span class="muted">' + what + ' · ' + esc(timeAgo(x.resolved_at)) + '</span></span>' +
+      '<button type="button" class="btn btn-small btn-plain" data-undo="' + x.id + '" aria-label="Undo: ' + what.toLowerCase() + ' for ' + esc(x.job.company) + '">Undo</button></li>';
+  }).join('') + '</ul>';
+}
+
 function renderReview() {
   const r = S.data.review;
   $('#view').innerHTML = '<h2>Suggestions</h2>' + syncPanel(r) +
     (r.suggestions.length
       ? '<p class="muted small">Suggested status changes. Nothing changes until you accept.</p>' +
         r.suggestions.map(function (x, i) { return suggestionCard(x, i, r.suggestions.length); }).join('')
-      : '<div class="empty"><b>All caught up</b><br>No suggestions waiting. New ones appear after the next sync.</div>');
+      : '<div class="empty"><b>All caught up</b><br>No suggestions waiting. New ones appear after the next sync.</div>') +
+    recentList(r.recent);
   const button = $('#sync-now');
   if (button) button.addEventListener('click', function () { runSync(true); });
 }
@@ -939,7 +957,6 @@ async function resolveSuggestion(id, act, chosenStatus, buttons) {
   const s = S.data.review.suggestions.filter(function (x) { return x.id === id; })[0];
   if (!s) return;
   const before = s.job.status;
-  const jobId = s.job.id;
   const company = s.job.company;
   buttons.forEach(function (b) { b.disabled = true; });
   try {
@@ -962,8 +979,7 @@ async function resolveSuggestion(id, act, chosenStatus, buttons) {
         label: 'Undo',
         run: async function () {
           try {
-            await call('updateJob', jobId, { status: before });
-            await call('reopenSuggestion', id);
+            await call('undoSuggestion', id);
             toast(company + ' is back to ' + before + '. The suggestion is waiting again.');
             await reload();
           } catch (e) { handleError(e); }
@@ -1435,6 +1451,14 @@ $('#view').addEventListener('click', function (e) {
     else if (item.dataset.m === 'export') exportView();
     else if (item.dataset.m === 'refresh') reload();
     return;
+  }
+  const undoBtn = t.closest('[data-undo]');
+  if (undoBtn) {
+    undoBtn.disabled = true;
+    return call('undoSuggestion', Number(undoBtn.dataset.undo)).then(function () {
+      toast('Back in your suggestions.');
+      return reload();
+    }).catch(function (e) { undoBtn.disabled = false; handleError(e); });
   }
   const quickSug = t.closest('[data-qs]');
   if (quickSug) {

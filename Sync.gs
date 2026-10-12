@@ -699,10 +699,41 @@ function reviewData_() {
       const y = b.email_date || b.created_at;
       return x < y ? 1 : x > y ? -1 : b.id - a.id;
     });
+  // Recently resolved (last 14 days), so a mis-tap can be undone after the toast is gone.
+  const lastChange = {};
+  const lastHistory = {};
+  readHistory_().forEach(function (h) {
+    if (!lastChange[h.job_id] || h.changed_at > lastChange[h.job_id]) lastChange[h.job_id] = h.changed_at;
+    if (!lastHistory[h.job_id] || h.id > lastHistory[h.job_id].id) lastHistory[h.job_id] = h;
+  });
+  const recent = readSuggestions_()
+    .filter(function (s) {
+      const job = jobsById[s.job_id];
+      if (!job || !s.resolved_at || now - Date.parse(s.resolved_at) > 14 * DAY_MS) return false;
+      if (s.state === 'accepted') {
+        const last = lastHistory[s.job_id];
+        return !!last && last.source === (s.kind === 'email' ? 'email' : 'inactivity');
+      }
+      if (s.state !== 'dismissed') return false;
+      if (s.kind === 'email') return true;
+      // A "gone quiet" suggestion the app cleaned up itself (the job moved on) is not the user's to undo.
+      const last = lastActivity_(job, lastChange);
+      return !!last && s.dedupe_key === 'ghost:' + job.id + ':' + last;
+    })
+    .sort(function (a, b) { return a.resolved_at < b.resolved_at ? 1 : a.resolved_at > b.resolved_at ? -1 : b.id - a.id; })
+    .slice(0, 8)
+    .map(function (s) {
+      const job = jobsById[s.job_id];
+      return {
+        id: s.id, state: s.state, kind: s.kind, suggested_status: s.suggested_status, resolved_at: s.resolved_at,
+        job: { id: job.id, company: job.company, role: job.role },
+      };
+    });
   const lastSyncAt = props.getProperty('gmailLastSyncAt');
   const available = gmailAvailable_();
   return {
     suggestions: items,
+    recent: recent,
     gmailAvailable: available,
     lastSyncAt: lastSyncAt,
     lastSyncError: props.getProperty('gmailLastSyncError'),
@@ -739,18 +770,50 @@ function acceptSuggestion(id, status) {
   });
 }
 
-/** Put an accepted or dismissed suggestion back in the pending list (the Undo button). */
+function reopen_(s) {
+  s.state = 'pending';
+  s.resolved_at = null;
+  const range = sheet_(SHEET_SUGGESTIONS).getRange(s._row, 1, 1, SUGGESTION_COLUMNS.length);
+  range.setNumberFormat('@');
+  range.setValues([toRow_(s, SUGGESTION_COLUMNS)]);
+}
+
+function findSuggestion_(id) {
+  const s = readSuggestions_().filter(function (x) { return x.id === Number(id); })[0];
+  if (!s) throw new Error(CONFLICT + 'that suggestion no longer exists');
+  return s;
+}
+
+/** Put a dismissed suggestion back in the pending list (the Undo button). */
 function reopenSuggestion(id) {
   return withLock_(function () {
-    const s = readSuggestions_().filter(function (x) { return x.id === Number(id); })[0];
-    if (!s) throw new Error(CONFLICT + 'that suggestion no longer exists');
-    if (s.state !== 'pending') {
-      s.state = 'pending';
-      s.resolved_at = null;
-      const range = sheet_(SHEET_SUGGESTIONS).getRange(s._row, 1, 1, SUGGESTION_COLUMNS.length);
-      range.setNumberFormat('@');
-      range.setValues([toRow_(s, SUGGESTION_COLUMNS)]);
+    const s = findSuggestion_(id);
+    if (s.state !== 'pending') reopen_(s);
+    return true;
+  });
+}
+
+/**
+ * Undo an accepted suggestion: put the job's previous status back, remove the
+ * history row the accept wrote (so the job's quiet-days clock is untouched and a
+ * "gone quiet" suggestion stays valid), and make the suggestion pending again.
+ * Refuses if the job was changed again after the accept.
+ */
+function undoSuggestion(id) {
+  return withLock_(function () {
+    const s = findSuggestion_(id);
+    if (s.state === 'accepted') {
+      const source = s.kind === 'email' ? 'email' : 'inactivity';
+      const last = readHistory_().filter(function (h) { return h.job_id === s.job_id; })
+        .reduce(function (a, b) { return !a || b.id > a.id ? b : a; }, null);
+      if (!last || last.source !== source) throw new Error(CONFLICT + 'that job was changed after the suggestion was accepted');
+      const job = findJob_(readJobs_(), s.job_id);
+      job.status = last.old_status;
+      job.updated_at = nextTimestamp_(job.updated_at);
+      writeJobRow_(job);
+      sheet_(SHEET_HISTORY).deleteRow(last._row);
     }
+    if (s.state !== 'pending') reopen_(s);
     return true;
   });
 }

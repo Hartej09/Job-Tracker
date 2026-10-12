@@ -516,3 +516,54 @@ test('reopenSuggestion puts an accepted or dismissed suggestion back in the pend
   assert.equal(review(env).suggestions.length, 1);
   assert.throws(() => env.gas.reopenSuggestion(999), /CONFLICT/);
 });
+
+test('undoSuggestion restores the status and keeps a quiet-check suggestion valid', () => {
+  const env = synced();
+  const job = add(env);
+  env.gas.runGhostCheck_(inDays(31));
+  const ghost = allSuggestions(env).find((s) => s.kind === 'inactivity' && s.job_id === job.id);
+  const historyBefore = history(env, job.id).length;
+  env.gas.acceptSuggestion(ghost.id);
+  assert.equal(jobById(env, job.id).status, 'Ghosted');
+  env.gas.undoSuggestion(ghost.id);
+  assert.equal(jobById(env, job.id).status, 'Applied');
+  assert.equal(history(env, job.id).length, historyBefore, 'the accept history row is removed');
+  assert.equal(env.gas.runGhostCheck_(inDays(31)), 0, 'nothing new is created');
+  assert.equal(allSuggestions(env).find((s) => s.id === ghost.id).state, 'pending', 'the suggestion survives the next check');
+});
+
+test('undoSuggestion works for email suggestions and refuses after a later change', () => {
+  const env = synced();
+  const job = add(env);
+  env.gmail.add({ from: 'jobs@acme.com', subject: 'R-10001', body: 'Unfortunately not this time.' });
+  sync(env);
+  const s = review(env).suggestions[0];
+  env.gas.acceptSuggestion(s.id);
+  env.gas.undoSuggestion(s.id);
+  assert.equal(jobById(env, job.id).status, 'Applied');
+  assert.equal(review(env).suggestions.length, 1);
+  env.gas.acceptSuggestion(s.id);
+  env.gas.updateJob(job.id, { status: 'Withdrawn' });
+  assert.throws(() => env.gas.undoSuggestion(s.id), /CONFLICT: that job was changed after/);
+});
+
+test('recently resolved lists accepted and dismissed suggestions, and drops what the app cleaned up itself', () => {
+  const env = synced();
+  const a = add(env, { requisition_id: 'A-11111' });
+  const b = add(env, { requisition_id: 'B-22222', company: 'Globex' });
+  env.gmail.add({ from: 'jobs@acme.com', subject: 'A-11111', body: 'Unfortunately not this time.' });
+  sync(env);
+  const email = review(env).suggestions[0];
+  env.gas.acceptSuggestion(email.id);
+  env.gas.runGhostCheck_(inDays(31));
+  const ghost = allSuggestions(env).find((s) => s.kind === 'inactivity' && s.job_id === b.id);
+  env.gas.dismissSuggestion(ghost.id);
+  const recent = review(env).recent;
+  assert.deepEqual(recent.map((r) => [r.state, r.job.company]).sort(), [['accepted', 'Acme'], ['dismissed', 'Globex']]);
+  env.gas.undoSuggestion(email.id);
+  assert.equal(review(env).recent.length, 1, 'the undone one is pending again, not recent');
+  env.gas.updateJob(a.id, { status: 'Withdrawn' });
+  env.gas.acceptSuggestion(email.id);
+  env.gas.updateJob(a.id, { status: 'Offer' });
+  assert.ok(!review(env).recent.some((r) => r.job.company === 'Acme'), 'not listed once the job changed after the accept');
+});

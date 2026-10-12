@@ -8,7 +8,7 @@ Decisions behind the Job Tracker UI, so later changes stay consistent. The look 
 One job: show what needs attention next. Everything else (tables, forms, stats) supports that.
 The signature element is the suggestion: Gmail or inactivity proposes a status change and the
 person accepts or dismisses it. Suggestions surface as one "needs attention" strip on Jobs (suggestions and follow-ups side by side on wide screens, counts only), an Accept / Dismiss pair under the
-status in the table and on phone cards (with the email subject shown, and a quieter outlined Accept for Rejected, Ghosted and Withdrawn), and the Suggestions page. Accepting or dismissing shows an Undo toast that puts the suggestion back; it is cleared when you change page. A job's pending suggestion also appears at the top of its drawer and phone sheet, so the reason for the flag is never hidden. Jobs with a suggestion or an
+status in the table and on phone cards (with the email subject shown, and a quieter outlined Accept for Rejected, Ghosted and Withdrawn), and the Suggestions page. Accepting or dismissing shows an Undo toast that puts the suggestion back (for an accept it also puts the old status back and removes the history row the accept wrote, so a "gone quiet" suggestion stays valid); it is cleared when you change page. A job's pending suggestion also appears at the top of its drawer and phone sheet, so the reason for the flag is never hidden. Jobs with a suggestion or an
 overdue follow-up sort first; no row is pre-opened.
 
 ## Look
@@ -20,6 +20,7 @@ overdue follow-up sort first; no row is pre-opened.
 - **Status colours** are fixed meanings: Applied slate, Interviewing magenta, Offer green, Rejected red,
   Ghosted warm grey, Withdrawn amber. Every status also has a text label and a dot, never colour alone. Offer is the one solid pill (white on green), because it is the outcome worth noticing. Names and notes align to their own script, so Arabic and Hebrew sit right.
 - **A proposal is a soft box.** A suggestion sits in a borderless fill (the page colour, like a secondary row in an inset list) with a small mail or clock symbol. No dashed borders. Its buttons follow Apple's ladder: tinted Accept for good news, gray Accept for Rejected, Ghosted and Withdrawn, plain Dismiss. Solid blue is kept for real commits (Save, Add job). The Suggestions page uses the same tinted / gray Accept.
+- **Selection is neutral.** The selected row, chip and status button use a neutral fill, with a blue edge only on the status button. The Suggestions tab gets a quiet gray count; only overdue follow-ups earn a red badge.
 - **Blue means "act"**: links, primary buttons, selection. Don't use it for status.
 
 ## Tokens (CSS variables in `:root`)
@@ -37,7 +38,8 @@ overdue follow-up sort first; no row is pre-opened.
 - One breakpoint, 900px. Below it: bottom tab bar (Jobs, Follow-ups, Suggestions, Stats), "+" Add job in the
   Jobs header, cards that open a bottom sheet. At 900px and up: sidebar, job table, details panel.
 - Layout follows the space available, not the device. Same functions at every size.
-- On wide screens the details panel is a drawer over the right edge (Escape closes it), so the table keeps every column.
+- On wide screens the details panel is a drawer over the right edge (Escape closes it), so the table keeps every column; from 1600px wide it pushes the table instead. Nothing opens by itself, including on Follow-ups.
+- The phone sheet leads with the suggestion, the Posting and Candidate portal links and the status; status, follow-up and notes sit behind one "Update" row, and Save is a sticky footer.
 
 ## Behaviour rules
 
