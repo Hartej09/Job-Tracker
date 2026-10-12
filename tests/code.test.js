@@ -24,9 +24,9 @@ const jobs = (env) => env.json(env.gas.getAppData().jobs);
 test('setup creates sheets with headers and records the schema version', () => {
   const env = setup();
   const jobsSheet = env.ss.getSheetByName('Jobs');
-  assert.deepEqual(env.json(jobsSheet.getRange(1, 1, 1, 16).getDisplayValues()[0]), env.json(env.gas.JOB_COLUMNS));
+  assert.deepEqual(env.json(jobsSheet.getRange(1, 1, 1, 17).getDisplayValues()[0]), env.json(env.gas.JOB_COLUMNS));
   assert.ok(env.ss.getSheetByName('StatusHistory'));
-  assert.equal(env.store.schemaVersion, '2');
+  assert.equal(env.store.schemaVersion, '3');
   assert.ok(jobsSheet.validations.length > 0, 'status dropdown validation applied');
 });
 
@@ -480,4 +480,17 @@ test('text fields have length limits that name the field and the limit', () => {
   assert.throws(() => env.gas.addJob({ requisition_id: 'R-3', company: 'Acme', role: 'Engineer', notes: 'n'.repeat(5001) }, false), /Notes is too long/);
   const ok = add(env, { requisition_id: 'R-4', company: 'x'.repeat(200), notes: 'n'.repeat(5000) });
   assert.ok(ok.id);
+});
+
+test('portal_url (candidate portal link) saves, updates, exports and is length-limited like the job URL', () => {
+  const env = setup();
+  const job = add(env, { requisition_id: 'R-9', portal_url: 'https://careers.acme.com/portal/candidate/123' });
+  assert.equal(jobs(env)[0].portal_url, 'https://careers.acme.com/portal/candidate/123');
+  env.gas.updateJob(job.id, { portal_url: 'https://careers.acme.com/portal/new' });
+  assert.equal(jobs(env)[0].portal_url, 'https://careers.acme.com/portal/new');
+  env.gas.updateJob(job.id, { portal_url: '' });
+  assert.equal(jobs(env)[0].portal_url, null);
+  assert.throws(() => env.gas.updateJob(job.id, { portal_url: 'https://x.com/' + 'a'.repeat(2000) }), /Candidate portal link is too long/);
+  const mapping = env.json(env.gas.suggestMapping_(['Req', 'Candidate Portal Link']));
+  assert.equal(mapping.portal_url, 'Candidate Portal Link');
 });

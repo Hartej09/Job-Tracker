@@ -25,13 +25,17 @@ const MAX_FIELD_LENGTH = 200;
 const MAX_URL_LENGTH = 2000;
 const MAX_NOTES_LENGTH = 5000;
 const DATE_FIELDS = ['date_applied', 'follow_up'];
-const JOB_FIELDS = [
+const JOB_FIELDS_V1 = [
   'requisition_id', 'company', 'role', 'date_applied', 'status', 'location',
   'salary_range', 'job_url', 'contact', 'email_domain', 'follow_up', 'notes',
 ];
-// Schema v1 columns; v2 added last_email_at (latest matched email, for the ghost check).
-const JOB_COLUMNS_V1 = ['id'].concat(JOB_FIELDS, ['created_at', 'updated_at']);
-const JOB_COLUMNS = JOB_COLUMNS_V1.concat(['last_email_at']);
+// v3 added portal_url (the candidate portal link).
+const JOB_FIELDS = JOB_FIELDS_V1.concat(['portal_url']);
+// Schema v1 columns; v2 added last_email_at (latest matched email, for the ghost check);
+// v3 added portal_url. New columns are always appended so existing sheets keep their order.
+const JOB_COLUMNS_V1 = ['id'].concat(JOB_FIELDS_V1, ['created_at', 'updated_at']);
+const JOB_COLUMNS_V2 = JOB_COLUMNS_V1.concat(['last_email_at']);
+const JOB_COLUMNS = JOB_COLUMNS_V2.concat(['portal_url']);
 const HISTORY_COLUMNS = ['id', 'job_id', 'old_status', 'new_status', 'changed_at', 'source'];
 
 const FIELD_LABELS = {
@@ -43,6 +47,7 @@ const FIELD_LABELS = {
   location: 'Location',
   salary_range: 'Salary range',
   job_url: 'Job URL',
+  portal_url: 'Candidate portal link',
   contact: 'Contact',
   email_domain: 'Email domain',
   follow_up: 'Follow-up',
@@ -105,6 +110,14 @@ const MIGRATIONS = [
   },
   function v2(ss) {
     migrateV2_(ss); // Sync.gs: Suggestions, Settings and Rules tabs; Jobs.last_email_at
+  },
+  function v3(ss) {
+    // Jobs: portal_url goes right after last_email_at; any extra columns the user added move over.
+    const jobs = ss.getSheetByName(SHEET_JOBS);
+    const col = JOB_COLUMNS_V2.length;
+    jobs.insertColumnAfter(col);
+    jobs.getRange(1, col + 1, jobs.getMaxRows(), 1).setNumberFormat('@');
+    jobs.getRange(1, col + 1).setValue('portal_url').setFontWeight('bold');
   },
 ];
 
@@ -296,7 +309,7 @@ function normalizeFields_(data) {
     if (v !== null && DATE_FIELDS.indexOf(f) >= 0 && !isIsoDate_(v)) {
       problems.push(FIELD_LABELS[f] + ' must be a valid date (got "' + v + '")');
     }
-    const limit = f === 'notes' ? MAX_NOTES_LENGTH : f === 'job_url' ? MAX_URL_LENGTH : MAX_FIELD_LENGTH;
+    const limit = f === 'notes' ? MAX_NOTES_LENGTH : f === 'job_url' || f === 'portal_url' ? MAX_URL_LENGTH : MAX_FIELD_LENGTH;
     if (v !== null && v.length > limit) {
       problems.push(FIELD_LABELS[f] + ' is too long (' + v.length + ' characters; the limit is ' + limit + ')');
     }
@@ -614,6 +627,7 @@ const FIELD_ALIASES = {
   location: ['location', 'city', 'joblocation'],
   salary_range: ['salaryrange', 'salary', 'compensation', 'pay', 'payrange'],
   job_url: ['joburl', 'url', 'link', 'joblink', 'postingurl', 'postinglink'],
+  portal_url: ['portalurl', 'portallink', 'candidateportal', 'candidateportalurl', 'candidateportallink', 'applicationportal'],
   contact: ['contact', 'recruiter', 'contactname', 'hiringmanager'],
   email_domain: ['emaildomain', 'domain'],
   follow_up: ['followup', 'followupdate', 'nextfollowup', 'followupon'],

@@ -65,6 +65,11 @@ history are kept; the `Jobs` tab gets one new column, `last_email_at`.
 
 ## Updating the code later
 
+The candidate portal link added a column: the `Jobs` tab gets `portal_url` right after
+`last_email_at`, added automatically the first time the updated app opens. Paste the new
+`Code.gs`, `Sync.gs` and the three HTML files, then **Deploy → Manage deployments →
+New version**.
+
 Paste the new file contents, **Save**, then **Deploy → Manage deployments** → pencil
 icon → *Version:* **New version** → **Deploy**. The URL stays the same.
 (**Deploy → Test deployments** gives a `/dev` URL that always runs the latest saved
@@ -152,7 +157,7 @@ The `Jobs` tab is a normal spreadsheet, so you can also edit there:
 - Dates typed in a common format (e.g. `3/4/2026`) are converted to `2026-03-04`.
 - Don't edit `id`, `created_at`, `updated_at` or `last_email_at` (you'll get a warning),
   and add new jobs in the app rather than as new sheet rows — rows without an `id` are
-  ignored. Your own extra columns to the right of `last_email_at` are fine.
+  ignored. Your own extra columns to the right of `portal_url` are fine.
 
 ## How the data is stored
 

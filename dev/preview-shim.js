@@ -23,7 +23,7 @@
       return d.toISOString().slice(0, 10);
     };
     [
-      { requisition_id: 'JR-20417', company: 'Northwind Traders', role: 'Data Analyst', date_applied: iso(-37), follow_up: iso(-23), location: 'Seattle WA', salary_range: '$85k-$100k', job_url: 'https://example.com/jobs/20417', contact: 'Dana Lee', notes: 'Applied via referral' },
+      { requisition_id: 'JR-20417', company: 'Northwind Traders', role: 'Data Analyst', date_applied: iso(-37), follow_up: iso(-23), location: 'Seattle WA', salary_range: '$85k-$100k', job_url: 'https://example.com/jobs/20417', portal_url: 'https://example.com/candidate/portal/20417', contact: 'Dana Lee', notes: 'Applied via referral' },
       { requisition_id: 'CON-BA-01', company: 'Contoso', role: 'Business Analyst', date_applied: iso(-34), status: 'Interviewing', follow_up: iso(0), location: 'Remote' },
       { requisition_id: 'R-88812', company: 'Fabrikam', role: 'Product Manager', date_applied: iso(-31), location: 'Austin TX', salary_range: '$120k' },
       { requisition_id: 'TT-QA-22', company: 'Tailspin Toys', role: 'QA Engineer', date_applied: iso(-29), status: 'Rejected' },

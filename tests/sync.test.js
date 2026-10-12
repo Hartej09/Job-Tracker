@@ -488,10 +488,11 @@ test('upgrading a Phase 1 sheet keeps data and shifts extra user columns right',
   jobs.getRange(2, 1, 1, 15).setValues([row]);
   jobs.getRange(2, 16).setValue('call back Friday');
   const data = env.json(env.gas.getAppData());
-  assert.equal(env.store.schemaVersion, '2');
+  assert.equal(env.store.schemaVersion, '3');
   assert.equal(jobs.cell(1, 16), 'last_email_at');
-  assert.equal(jobs.cell(1, 17), 'my notes');
-  assert.equal(jobs.cell(2, 17), 'call back Friday');
+  assert.equal(jobs.cell(1, 17), 'portal_url');
+  assert.equal(jobs.cell(1, 18), 'my notes');
+  assert.equal(jobs.cell(2, 18), 'call back Friday');
   assert.equal(data.jobs[0].company, 'Acme');
   assert.equal(data.jobs[0].last_email_at, null);
   for (const name of ['Suggestions', 'Settings', 'Rules']) assert.ok(env.ss.getSheetByName(name), name);
