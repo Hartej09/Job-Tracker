@@ -593,6 +593,8 @@ async function onEditSubmit(form) {
   button.disabled = true;
   try {
     await call('updateJob', id, changes, form.dataset.updated || job.updated_at);
+    // Saved: nothing is unsaved any more, so the refresh below may redraw this form and leaving it must not ask.
+    form.dataset.dirty = '';
     delete S.open[id];
     toast('Saved ' + (changes.company || job.company));
     await reload();
