@@ -54,7 +54,8 @@ function addDays(iso, days) {
   return new Date(Date.parse(iso + 'T00:00:00Z') + days * 86400000).toISOString().slice(0, 10);
 }
 
-const WIDE = window.matchMedia('(min-width: 900px)');
+// Wide layout (sidebar, table, drawer) needs room in both directions; a phone held sideways is wide but short.
+const WIDE = window.matchMedia('(min-width: 900px) and (min-height: 520px)');
 
 const ICON = {
   close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
@@ -434,7 +435,7 @@ function editForm(job, confirmDelete, inPanel) {
     (inPanel ? '' : '<div class="sheet-links"><button type="button" class="row-link" data-act="edit-all">All fields' + ICON.chevR + '</button>' +
       '<button type="button" class="row-link" data-act="sheet-history">History' + ICON.chevR + '</button>' +
       '</div><div class="history-panel sheet-history" hidden></div>') +
-    '<details><summary class="small muted">More fields</summary><div class="grid">' +
+    '<details class="more-fields"><summary class="small muted">More fields</summary><div class="grid">' +
     field('requisition_id', job.requisition_id, Object.assign({ required: true }, p)) +
     field('company', job.company, Object.assign({ required: true }, p)) +
     field('role', job.role, Object.assign({ required: true }, p)) +
@@ -518,7 +519,7 @@ async function onCardAction(button) {
   const mode = S.open[id];
   if (act === 'review') return go('review');
   if (act === 'edit-all') {
-    const more = cardEl.querySelector('.edit-form details');
+    const more = cardEl.querySelector('.edit-form details.more-fields');
     more.open = !more.open;
     cardEl.querySelectorAll('.btn[data-act="edit-all"]').forEach(function (b) { b.textContent = more.open ? 'Hide fields' : 'Edit all fields'; });
     if (more.open) more.scrollIntoView({ block: 'nearest' });
@@ -754,6 +755,12 @@ function renderJobList(keepDetail) {
     if (selected) showHistory(selected.id);
   }
   $('#jobs-layout').classList.toggle('has-detail', !!selected);
+  // The job that just changed gets a brief highlight, so a re-sort does not lose your place.
+  if (S.flashJob) {
+    const id = S.flashJob;
+    S.flashJob = null;
+    document.querySelectorAll('#job-list [data-id="' + id + '"]').forEach(function (el) { el.classList.add('moved'); });
+  }
 }
 
 async function exportView() {
@@ -960,16 +967,19 @@ async function resolveSuggestion(id, act, chosenStatus, buttons) {
   if (!s) return;
   const before = s.job.status;
   const company = s.job.company;
+  const flash = function () { if (S.view === 'jobs' || S.view === 'followups') S.flashJob = s.job.id; };
   buttons.forEach(function (b) { b.disabled = true; });
   try {
     if (act === 'dismiss') {
       await call('dismissSuggestion', id);
+      flash();
       toast('Dismissed', false, {
         label: 'Undo',
         run: async function () {
           try {
             await call('reopenSuggestion', id);
             toast('The suggestion is back.');
+            flash();
             await reload();
           } catch (e) { handleError(e); }
         },
@@ -977,12 +987,14 @@ async function resolveSuggestion(id, act, chosenStatus, buttons) {
     } else {
       const status = chosenStatus || s.suggested_status;
       await call('acceptSuggestion', id, status);
+      flash();
       toast(company + ' → ' + status + (status === 'Offer' ? '. Congratulations.' : ''), false, {
         label: 'Undo',
         run: async function () {
           try {
             await call('undoSuggestion', id);
             toast(company + ' is back to ' + before + '. The suggestion is waiting again.');
+            flash();
             await reload();
           } catch (e) { handleError(e); }
         },

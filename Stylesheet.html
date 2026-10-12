@@ -101,7 +101,7 @@
     padding-bottom: calc(84px + env(safe-area-inset-bottom));
   }
   a { color: var(--accent); }
-  a:hover { color: var(--link-hover); }
+  @media (hover: hover) and (pointer: fine) { a:hover { color: var(--link-hover); } }
   /* Phone feel: no grey tap flash, no double-tap zoom delay on controls. */
   a, button, label, select, summary, .chip, .pick, .seg { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
   .visually-hidden {
@@ -168,10 +168,10 @@
     border: 1px solid var(--control); background: var(--surface); color: var(--text);
     font: inherit; font-size: 0.9375rem; font-weight: 600; text-decoration: none; cursor: pointer;
   }
-  .btn:hover { color: var(--text); background: var(--bg); }
+  @media (hover: hover) and (pointer: fine) { .btn:hover { color: var(--text); background: var(--bg); } }
   .btn:disabled { opacity: .5; cursor: default; }
   .btn-primary { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--accent-text); }
-  .btn-primary:hover { background: var(--accent-fill); color: var(--accent-text); filter: brightness(1.1); }
+  @media (hover: hover) and (pointer: fine) { .btn-primary:hover { background: var(--accent-fill); color: var(--accent-text); filter: brightness(1.1); } }
   .btn-danger { color: var(--danger); }
   .btn-danger.solid { background: var(--danger); border-color: var(--danger); color: #fff; }
   .btn-ghost { border-color: transparent; background: none; min-height: 40px; padding: 6px 10px; }
@@ -220,7 +220,7 @@
   /* Filters */
   .chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 8px; scrollbar-width: none; }
   .chips::-webkit-scrollbar { display: none; }
-  @media (max-width: 899.98px) { .chips { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); padding-right: 24px; } }
+  @media (max-width: 899.98px), (max-height: 519.98px) { .chips { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); padding-right: 24px; } }
   .chip, .pick {
     flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px;
     border-radius: 999px; border: 1px solid var(--control);
@@ -271,7 +271,7 @@
     border: 0; border-radius: 12px; background: var(--bg); color: var(--text); font: inherit; font-size: 0.9062rem; font-weight: 600;
     text-decoration: none; cursor: pointer; white-space: nowrap;
   }
-  .row-link:hover { color: var(--text); background: var(--side); }
+  @media (hover: hover) and (pointer: fine) { .row-link:hover { color: var(--text); background: var(--side); } }
   .detail-links { margin: 14px 0 4px; }
   .detail-links .row-link { min-height: 40px; font-size: 0.8438rem; }
   .row-link svg { width: 18px; height: 18px; color: var(--muted); }
@@ -292,9 +292,9 @@
   .page-actions { display: flex; align-items: center; flex: 0 0 auto; margin: -2px -6px 0 0; }
   .menu-wrap { position: relative; }
   .page-actions .icon-btn.add-btn { background: var(--accent-fill); color: var(--accent-text); margin-right: 6px; }
-  .page-actions .icon-btn.add-btn:hover { background: var(--accent-fill); filter: brightness(1.1); }
+  @media (hover: hover) and (pointer: fine) { .page-actions .icon-btn.add-btn:hover { background: var(--accent-fill); filter: brightness(1.1); } }
   .page-actions .icon-btn { border: 0; background: none; color: var(--text); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
-  .page-actions .icon-btn:hover { background: color-mix(in srgb, var(--border) 60%, transparent); }
+  @media (hover: hover) and (pointer: fine) { .page-actions .icon-btn:hover { background: color-mix(in srgb, var(--border) 60%, transparent); } }
   .menu {
     position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; min-width: 220px; padding: 6px;
     background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
@@ -304,7 +304,7 @@
     display: flex; align-items: center; gap: 10px; width: 100%; min-height: 46px; padding: 0 12px; border: 0; border-radius: 9px;
     background: none; color: var(--text); font: inherit; font-size: 0.9375rem; text-align: left; text-decoration: none; cursor: pointer;
   }
-  .menu button:hover, .menu a:hover { background: var(--bg); color: var(--text); }
+  @media (hover: hover) and (pointer: fine) { .menu button:hover, .menu a:hover { background: var(--bg); color: var(--text); } }
   .menu svg { width: 18px; height: 18px; color: var(--muted); }
   .searchbox { position: relative; flex: 1 1 100%; order: 3; margin-top: 10px; }
   .searchbox svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; color: var(--muted); pointer-events: none; }
@@ -330,11 +330,11 @@
   .suggest-pill.in-detail { margin: 14px 0 4px; }
   .sp-ico { width: 14px; height: 14px; margin: -2px 6px 0 0; vertical-align: middle; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .btn-tint { background: var(--tint-btn-bg); border-color: transparent; color: var(--tint-btn-fg); font-weight: 600; }
-  .btn-tint:hover { background: var(--tint-btn-bg); color: var(--tint-btn-fg); filter: brightness(.97); }
+  @media (hover: hover) and (pointer: fine) { .btn-tint:hover { background: var(--tint-btn-bg); color: var(--tint-btn-fg); filter: brightness(.97); } }
   .btn-gray { background: var(--gray-btn-bg); border-color: transparent; color: var(--text); font-weight: 600; }
-  .btn-gray:hover { background: var(--gray-btn-bg); color: var(--text); filter: brightness(.97); }
+  @media (hover: hover) and (pointer: fine) { .btn-gray:hover { background: var(--gray-btn-bg); color: var(--text); filter: brightness(.97); } }
   .btn-plain { background: transparent; border-color: transparent; color: var(--text2); box-shadow: none; }
-  .btn-plain:hover { background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); }
+  @media (hover: hover) and (pointer: fine) { .btn-plain:hover { background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); } }
   .accept-as { margin-top: 10px; }
   .accept-as summary { display: inline-flex; align-items: center; min-height: 36px; font-size: 0.8125rem; font-weight: 600; color: var(--accent); cursor: pointer; }
   .accept-as-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding-bottom: 4px; }
@@ -383,10 +383,10 @@
   .icon-btn { width: 44px; height: 44px; padding: 0; border-radius: 22px; }
   .edit-form .btn-primary { flex: 1 1 auto; max-width: 220px; }
   .edit-form details > summary { margin-top: 12px; }
-  @media (max-width: 899px) {
+  @media (max-width: 899px), (max-height: 519px) {
     .card.is-editing::after { content: ""; position: fixed; inset: 0; z-index: 30; background: var(--scrim); }
     .card.is-editing .edit-form {
-      position: fixed; left: 0; right: 0; bottom: 0; z-index: 31; max-height: 90vh; overflow-y: auto;
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 31; max-height: 90vh; max-height: 90dvh; overflow-y: auto;
       margin: 0; padding: 10px 20px calc(24px + env(safe-area-inset-bottom));
       background: var(--surface); border-top: 0; border-radius: 24px 24px 0 0;
       box-shadow: 0 -8px 30px rgba(0, 0, 0, .25);
@@ -401,6 +401,12 @@
     .sheet-head b { font-size: 1.3125rem; letter-spacing: -.015em; }
     .sheet-head .meta { margin-top: 2px; }
     .edit-form .btn-primary { max-width: none; }
+  }
+
+  @media (min-width: 620px) and (max-width: 899px), (min-width: 620px) and (max-height: 519px) {
+    #job-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; align-items: start; }
+    #job-list > .empty { grid-column: 1 / -1; }
+    .card.is-editing .edit-form { left: 0; right: 0; margin-inline: auto; width: min(600px, 100%); }
   }
 
   /* Review */
@@ -575,7 +581,7 @@
   }
   table.jobs td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
   table.jobs tbody tr { cursor: pointer; }
-  table.jobs tbody tr:hover td { background: color-mix(in srgb, var(--text) 3%, var(--surface)); }
+  @media (hover: hover) and (pointer: fine) { table.jobs tbody tr:hover td { background: color-mix(in srgb, var(--text) 3%, var(--surface)); } }
   table.jobs tbody tr.sel td { background: color-mix(in srgb, var(--text) 7%, var(--surface)); }
   table.jobs tbody tr:last-child td { border-bottom: 0; }
   table.jobs .co { font-weight: 600; }
@@ -611,7 +617,7 @@
   .timeline .muted { font-size: 0.8125rem; }
   table.jobs td, table.jobs th { padding-left: 12px; padding-right: 12px; }
 
-  @media (min-width: 900px) {
+  @media (min-width: 900px) and (min-height: 520px) {
     body { padding-left: var(--sidebar); padding-bottom: 0; }
     main { max-width: 1320px; margin: 0; padding: 12px 32px 48px; }
     .empty { text-align: left; padding: 24px 0; }
@@ -630,19 +636,19 @@
       flex-direction: row; justify-content: flex-start; gap: 10px; min-height: 42px; padding: 0 10px;
       border-radius: 10px; font-size: 0.9062rem; font-weight: 500; color: var(--text2); text-align: left;
     }
-    .tabbar button:hover { background: color-mix(in srgb, var(--border) 70%, transparent); color: var(--text); }
+    @media (hover: hover) and (pointer: fine) { .tabbar button:hover { background: color-mix(in srgb, var(--border) 70%, transparent); color: var(--text); } }
     .tabbar button[aria-current="page"] { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(15,30,61,.08), 0 0 0 1px var(--border); }
     .tabbar button svg { width: 18px; height: 18px; }
     .tabbar button[data-view="add"] {
       order: -2; justify-content: center; margin-bottom: 14px; min-height: 44px;
       display: flex; background: var(--accent-fill); color: var(--accent-text); font-weight: 600;
     }
-    .tabbar button[data-view="add"]:hover { background: var(--accent-fill); filter: brightness(1.1); color: var(--accent-text); }
+    @media (hover: hover) and (pointer: fine) { .tabbar button[data-view="add"]:hover { background: var(--accent-fill); filter: brightness(1.1); color: var(--accent-text); } }
     .tabbar button[data-view="add"] { padding: 0 10px; }
     .tabbar button[data-view="add"][aria-current="page"] { background: var(--accent-fill); box-shadow: none; }
     .tabbar .desk-only { display: flex; }
     .tabbar .nav-link { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 0 10px; border-radius: 10px; font-size: 0.9062rem; font-weight: 500; color: var(--text2); text-decoration: none; }
-    .tabbar .nav-link:hover { background: color-mix(in srgb, var(--border) 70%, transparent); color: var(--text); }
+    @media (hover: hover) and (pointer: fine) { .tabbar .nav-link:hover { background: color-mix(in srgb, var(--border) 70%, transparent); color: var(--text); } }
     .tabbar .nav-link svg { width: 18px; height: 18px; }
     .tabbar .nav-link .ext { margin-left: auto; width: 14px; height: 14px; color: var(--muted); }
     .nav-sep { height: 1px; background: var(--border2); margin: 10px 8px; }
@@ -673,7 +679,7 @@
       border: 1px solid var(--control); background: var(--surface); color: var(--text); justify-content: center;
       min-height: 36px; padding: 0 16px; font-size: 0.8125rem; font-weight: 600; box-shadow: none;
     }
-    .tabbar .side-foot .btn:hover { background: var(--bg); }
+    @media (hover: hover) and (pointer: fine) { .tabbar .side-foot .btn:hover { background: var(--bg); } }
     h2 { margin-top: 10px; }
     /* The details panel is a drawer over the right edge, so the table keeps every column. */
     .jobs-layout .detail {
@@ -681,11 +687,9 @@
       max-height: none; box-shadow: 0 12px 40px rgba(15, 30, 61, .22); border-color: var(--border2);
     }
     table.jobs td.mono .clip { display: block; white-space: nowrap; overflow: visible; -webkit-line-clamp: unset; line-clamp: unset; }
-    /* With room to spare, the drawer pushes the table over instead of covering it. */
-    @media (min-width: 1600px) {
-      .jobs-layout.has-detail { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 24px; align-items: start; }
-      .jobs-layout .detail { position: sticky; top: 16px; right: auto; bottom: auto; width: auto; max-height: calc(100vh - 32px); box-shadow: none; }
-    }
+    /* Narrower wide screens (iPad landscape and portrait Pro, small laptop windows): drop the optional columns before the table has to scroll sideways. */
+    @media (max-width: 1129px) { .col-opt { display: none; } }
+    @media (max-width: 999px) { .col-opt2 { display: none; } }
     .attention { display: flex; }
     .attention .banner { flex: 1 1 0; min-width: 0; }
     .attention .banner + .banner { border-top: 0; border-left: 1px solid var(--border2); }
@@ -730,16 +734,18 @@
     .btn:active, .chip:active, .pick:active, .seg:active, .quick:active, .icon-btn:active,
     .row-link:active, .tabbar button:active, .suggest-pill:active { transform: scale(.97); }
     article.card[data-id]:not(.is-editing) { transition: transform .12s ease-out; }
-    article.card[data-id]:not(.is-editing):active { transform: scale(.99); }
+    article.card[data-id]:not(.is-editing):not(:has(:is(button, a, select, input):active)):active { transform: scale(.99); }
     .menu { transform-origin: top right; animation: pop-in .14s ease-out; }
     .discard-bar { animation: fade-up .16s ease-out; }
+    table.jobs tr.moved td, article.card.moved { animation: moved 1.4s ease-out; }
     #toast { transform: translate(-50%, 8px); transition: opacity .2s ease-out, transform .2s ease-out; }
     #toast.show { transform: translate(-50%, 0); }
-    @media (max-width: 899px) {
+    @media (max-width: 899px), (max-height: 519px) {
       .card.entering::after { animation: fade-in .2s ease-out; }
       .card.entering .edit-form { animation: sheet-in .24s cubic-bezier(.2, .8, .2, 1); }
     }
   }
+  @keyframes moved { from { background-color: color-mix(in srgb, var(--accent) 16%, var(--surface)); } }
   @keyframes pop-in { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: scale(1); } }
   @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
   @keyframes fade-up { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }

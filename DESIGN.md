@@ -35,10 +35,12 @@ overdue follow-up sort first; no row is pre-opened.
 
 ## Layout
 
-- One breakpoint, 900px. Below it: bottom tab bar (Jobs, Follow-ups, Suggestions, Stats), "+" Add job in the
-  Jobs header, cards that open a bottom sheet. At 900px and up: sidebar, job table, details panel.
+- One breakpoint: wide means at least 900px wide AND 520px tall. Otherwise (phones in either orientation, iPad mini
+  and iPad portrait up to 899px): bottom tab bar (Jobs, Follow-ups, Suggestions, Stats), "+" Add job in the Jobs
+  header, cards that open a bottom sheet. From 620px the cards sit in two columns and the sheet is centred at 600px.
+  Wide: sidebar, job table, details drawer.
 - Layout follows the space available, not the device. Same functions at every size.
-- On wide screens the details panel is a drawer over the right edge (Escape closes it), so the table keeps every column; from 1600px wide it pushes the table instead. Nothing opens by itself, including on Follow-ups.
+- On wide screens the details panel is a drawer over the right edge (Escape closes it), so the table keeps every column. Nothing opens by itself, including on Follow-ups.
 - The phone sheet leads with the suggestion, the Posting and Candidate portal links and the status; status, follow-up and notes sit behind one "Update" row, and Save is a sticky footer.
 
 ## Behaviour rules
@@ -57,7 +59,7 @@ overdue follow-up sort first; no row is pre-opened.
 
 Short and ease-out, nothing over 300ms, and only where it explains something: buttons shrink to 0.97 when
 pressed, menus grow from 0.95 out of their button, the phone sheet slides up once when it opens, toasts
-fade in. Row selection, tab changes and hover stay instant. All of it is switched off by
+fade in. Row selection, tab changes and hover stay instant. Hover styles only apply where hovering exists (`hover: hover` and a fine pointer), so a tap on iPhone or iPad never leaves a button stuck. A press on a button inside a card does not also squash the card. After a suggestion is accepted, dismissed or undone, the job that moved gets a 1.4s soft highlight so the re-sort is explained. All of it is switched off by
 `prefers-reduced-motion`.
 
 ## Before shipping a UI change
