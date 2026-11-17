@@ -21,9 +21,9 @@ const HISTORY_SOURCES = ['manual', 'email', 'import', 'inactivity'];
 
 const REQUIRED_FIELDS = ['requisition_id', 'company', 'role'];
 // Longest text accepted per field; a Sheets cell holds 50,000, so these stay well inside it.
-const MAX_FIELD_LENGTH = 200;
+const MAX_FIELD_LENGTH = 2000;
 const MAX_URL_LENGTH = 2000;
-const MAX_NOTES_LENGTH = 5000;
+const MAX_NOTES_LENGTH = 10000;
 const DATE_FIELDS = ['date_applied', 'follow_up'];
 const JOB_FIELDS_V1 = [
   'requisition_id', 'company', 'role', 'date_applied', 'status', 'location',
